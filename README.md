@@ -54,7 +54,7 @@ to build a real `Snoop.app` (macos routes media keys, control centre, and the lo
 
 ```bash
 cargo build --release
-packaging/macos/bundle.sh target/release/snoop Snoop.app 0.1.5
+packaging/macos/bundle.sh target/release/snoop Snoop.app 0.1.6
 ```
 
 the bundle is ad-hoc signed by default. set `CODESIGN_IDENTITY` to a developer id to sign it for distribution.
