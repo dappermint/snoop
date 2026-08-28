@@ -605,8 +605,24 @@ pub fn pill_button(ui: &mut egui::Ui, palette: &Palette, label: &str, primary: b
                 palette.accent
             };
             ui.painter().rect_filled(rect, radius, fill);
+            ui.painter().rect_stroke(
+                rect,
+                radius,
+                Stroke::new(1.0, Color32::from_white_alpha(45)),
+                egui::StrokeKind::Inside,
+            );
         } else {
-            let stroke_color = if hovered { palette.text } else { palette.dim };
+            let fill = if hovered {
+                Color32::from_white_alpha(24)
+            } else {
+                Color32::from_white_alpha(12)
+            };
+            let stroke_color = if hovered {
+                Color32::from_white_alpha(60)
+            } else {
+                Color32::from_white_alpha(30)
+            };
+            ui.painter().rect_filled(rect, radius, fill);
             ui.painter().rect_stroke(
                 rect,
                 radius,
@@ -629,7 +645,7 @@ pub fn soft_button(
     active: bool,
 ) -> Response {
     let font = medium(13.0);
-    let color = if active { palette.window } else { palette.text };
+    let color = if active { palette.on_accent } else { palette.text };
     let galley = ui.painter().layout_no_wrap(label.to_string(), font, color);
     let icon_size = 15.0;
     let icon_width = if icon.is_some() { icon_size + 6.0 } else { 0.0 };
@@ -638,14 +654,20 @@ pub fn soft_button(
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
-        let fill = if active {
-            palette.text
+        let (fill, stroke_color) = if active {
+            (palette.accent, Color32::from_white_alpha(45))
         } else if hovered {
-            palette.surface_hover
+            (Color32::from_white_alpha(24), Color32::from_white_alpha(35))
         } else {
-            palette.surface
+            (Color32::from_white_alpha(10), Color32::from_white_alpha(20))
         };
         ui.painter().rect_filled(rect, rect.height() / 2.0, fill);
+        ui.painter().rect_stroke(
+            rect,
+            rect.height() / 2.0,
+            Stroke::new(1.0, stroke_color),
+            egui::StrokeKind::Inside,
+        );
         let mut x = rect.left() + padding.x;
         if let Some(icon) = icon {
             let icon_rect = egui::Rect::from_center_size(

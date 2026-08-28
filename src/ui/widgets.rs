@@ -51,6 +51,7 @@ pub fn paint_cover(
             Ok(egui::load::TexturePoll::Ready { .. })
         ) && {
             image.paint_at(ui, rect);
+            painter.rect_stroke(rect, corner, Stroke::new(1.0, egui::Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
             true
         }
     });
@@ -498,13 +499,31 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
         PlayableItem::Episode(_) => false,
     };
 
-    if hovered {
+    let row_rect = rect.shrink2(vec2(4.0, 1.0));
+    let corner = CornerRadius::same(8);
+    if is_current {
         ui.painter().rect_filled(
-            rect,
-            CornerRadius::same(6),
-            palette
-                .surface_hover
-                .gamma_multiply(if palette.dark { 0.7 } else { 1.0 }),
+            row_rect,
+            corner,
+            egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, if hovered { 40 } else { 25 }),
+        );
+        ui.painter().rect_stroke(
+            row_rect,
+            corner,
+            Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, if hovered { 80 } else { 50 })),
+            egui::StrokeKind::Inside,
+        );
+    } else if hovered {
+        ui.painter().rect_filled(
+            row_rect,
+            corner,
+            egui::Color32::from_white_alpha(15),
+        );
+        ui.painter().rect_stroke(
+            row_rect,
+            corner,
+            Stroke::new(1.0, egui::Color32::from_white_alpha(20)),
+            egui::StrokeKind::Inside,
         );
     }
     let cols = columns(width, &row);
@@ -894,16 +913,21 @@ pub fn card(
     if ui.is_rect_visible(rect) {
         let hovered = ui.rect_contains_pointer(rect);
         if hovered {
+            let card_corner = CornerRadius::same(theme::RADIUS + 2);
             ui.painter().rect_filled(
                 rect,
-                CornerRadius::same(theme::RADIUS),
-                palette
-                    .surface_hover
-                    .gamma_multiply(if palette.dark { 0.8 } else { 1.0 }),
+                card_corner,
+                egui::Color32::from_white_alpha(15),
+            );
+            ui.painter().rect_stroke(
+                rect,
+                card_corner,
+                Stroke::new(1.0, egui::Color32::from_white_alpha(22)),
+                egui::StrokeKind::Inside,
             );
         }
         let image_rect = Rect::from_min_size(rect.min + vec2(12.0, 12.0), Vec2::splat(image_size));
-        let radius = if round { image_size / 2.0 } else { 6.0 };
+        let radius = if round { image_size / 2.0 } else { 8.0 };
         paint_shadow(ui, &palette, image_rect, radius);
         paint_cover(
             ui,
@@ -1082,22 +1106,28 @@ pub fn thin_slider(
     };
     if ui.is_rect_visible(rect) {
         let active = response.hovered() || response.dragged() || dragging_value.is_some();
-        let bar = Rect::from_center_size(rect.center(), vec2(rect.width(), 4.0));
+        let height = if active { 5.0 } else { 3.5 };
+        let bar = Rect::from_center_size(rect.center(), vec2(rect.width(), height));
         let track_color = if palette.dark {
-            Color32::from_white_alpha(50)
+            Color32::from_white_alpha(35)
         } else {
-            Color32::from_black_alpha(40)
+            Color32::from_black_alpha(30)
         };
-        ui.painter().rect_filled(bar, 2.0, track_color);
+        ui.painter().rect_filled(bar, height / 2.0, track_color);
         let filled = Rect::from_min_max(
             bar.min,
             pos2(bar.left() + bar.width() * shown.clamp(0.0, 1.0), bar.max.y),
         );
         let fill = if active { accent } else { palette.text };
-        ui.painter().rect_filled(filled, 2.0, fill);
+        ui.painter().rect_filled(filled, height / 2.0, fill);
         if active {
-            ui.painter()
-                .circle_filled(pos2(filled.right(), bar.center().y), 6.0, palette.text);
+            let thumb_pos = pos2(filled.right(), bar.center().y);
+            ui.painter().circle_filled(thumb_pos, 6.5, Color32::WHITE);
+            ui.painter().circle_stroke(
+                thumb_pos,
+                6.5,
+                Stroke::new(1.0, Color32::from_black_alpha(40)),
+            );
         }
     }
     event
@@ -1134,20 +1164,19 @@ pub fn search_field(
     let height = 34.0;
     let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
     let has_focus = ui.memory(|memory| memory.has_focus(id));
-    let fill = if has_focus {
-        palette.surface_hover
+    let (fill, stroke) = if has_focus {
+        (
+            egui::Color32::from_white_alpha(22),
+            Stroke::new(1.5, palette.accent),
+        )
     } else {
-        palette.surface
+        (
+            egui::Color32::from_white_alpha(12),
+            Stroke::new(1.0, egui::Color32::from_white_alpha(28)),
+        )
     };
     ui.painter().rect_filled(rect, height / 2.0, fill);
-    if has_focus {
-        ui.painter().rect_stroke(
-            rect,
-            height / 2.0,
-            Stroke::new(1.5, palette.text.gamma_multiply(0.6)),
-            egui::StrokeKind::Inside,
-        );
-    }
+    ui.painter().rect_stroke(rect, height / 2.0, stroke, egui::StrokeKind::Inside);
     let icon_rect =
         Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), Vec2::splat(16.0));
     Icon::Search

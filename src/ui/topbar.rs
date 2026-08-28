@@ -1,6 +1,6 @@
 //! Navigation arrows, search, and the account menu above every page.
 
-use egui::{Align, CornerRadius, Layout, Sense, Vec2, pos2, vec2};
+use egui::{Align, CornerRadius, Layout, Sense, Stroke, Vec2, pos2, vec2};
 
 use crate::api::models::pick_image;
 use crate::app::App;
@@ -23,12 +23,21 @@ fn nav_button(
         },
     );
     if ui.is_rect_visible(rect) {
-        let fill = if palette.dark {
-            egui::Color32::from_black_alpha(90)
+        let fill = if response.hovered() && enabled {
+            egui::Color32::from_white_alpha(28)
+        } else if enabled {
+            egui::Color32::from_white_alpha(14)
         } else {
-            egui::Color32::from_black_alpha(20)
+            egui::Color32::from_white_alpha(6)
         };
         ui.painter().circle_filled(rect.center(), 16.0, fill);
+        if enabled {
+            ui.painter().circle_stroke(
+                rect.center(),
+                16.0,
+                Stroke::new(1.0, egui::Color32::from_white_alpha(if response.hovered() { 40 } else { 20 })),
+            );
+        }
         let color = if !enabled {
             palette.dim
         } else if response.hovered() {

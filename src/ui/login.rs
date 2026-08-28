@@ -22,14 +22,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             let mut card_ui = ui.new_child(egui::UiBuilder::new().max_rect(card).layout(Layout::top_down(Align::Center)));
             Frame::new()
                 .fill(palette.panel)
-                .stroke(Stroke::new(1.0, palette.outline))
-                .corner_radius(CornerRadius::same(theme::RADIUS + 8))
+                .stroke(Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 65)))
+                .corner_radius(CornerRadius::same(18))
                 .inner_margin(Margin::same(36))
                 .shadow(egui::epaint::Shadow {
                     offset: [0, 16],
-                    blur: 48,
+                    blur: 56,
                     spread: 0,
-                    color: palette.shadow,
+                    color: egui::Color32::from_black_alpha(160),
                 })
                 .show(&mut card_ui, |ui| {
                     ui.set_width(card_width - 72.0);
@@ -115,6 +115,12 @@ fn big_button(ui: &mut egui::Ui, app: &App, label: &str) -> bool {
         palette.accent
     };
     ui.painter().rect_filled(rect, 23.0, fill);
+    ui.painter().rect_stroke(
+        rect,
+        23.0,
+        Stroke::new(1.0, egui::Color32::from_white_alpha(45)),
+        egui::StrokeKind::Inside,
+    );
     ui.painter().galley(
         rect.center() - galley.size() / 2.0,
         galley,

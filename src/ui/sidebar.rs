@@ -1,6 +1,6 @@
 //! The left panel: navigation and Your Library.
 
-use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Sense, Vec2, pos2, vec2};
+use egui::{Align, CornerRadius, Frame, Layout, Margin, Rect, Sense, Stroke, Vec2, pos2, vec2};
 
 use crate::api::models::pick_image;
 use crate::app::App;
@@ -46,7 +46,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let response = panel.show(ui, |ui| {
         contents(app, ui);
     });
-    let width = response.response.rect.width();
+    let rect = response.response.rect;
+    ui.painter().vline(
+        rect.right() - 0.5,
+        rect.y_range(),
+        Stroke::new(1.0, egui::Color32::from_white_alpha(18)),
+    );
+    let width = rect.width();
     if (width - app.settings.sidebar_width).abs() > 1.0 {
         app.settings.sidebar_width = width;
         app.actions.push(Action::SettingsChanged);
@@ -60,21 +66,51 @@ fn nav_row(
     label: &str,
     active: bool,
 ) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
     if ui.is_rect_visible(rect) {
-        let color = if active || response.hovered() {
+        let hovered = response.hovered();
+        let pill_rect = rect.shrink2(vec2(2.0, 1.0));
+        let corner = CornerRadius::same(8);
+        if active {
+            ui.painter().rect_filled(
+                pill_rect,
+                corner,
+                egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 40),
+            );
+            ui.painter().rect_stroke(
+                pill_rect,
+                corner,
+                Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 85)),
+                egui::StrokeKind::Inside,
+            );
+        } else if hovered {
+            ui.painter().rect_filled(
+                pill_rect,
+                corner,
+                egui::Color32::from_white_alpha(15),
+            );
+            ui.painter().rect_stroke(
+                pill_rect,
+                corner,
+                Stroke::new(1.0, egui::Color32::from_white_alpha(25)),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let color = if active {
+            palette.accent
+        } else if hovered {
             palette.text
         } else {
             palette.secondary
         };
         let icon_rect =
-            Rect::from_center_size(pos2(rect.left() + 22.0, rect.center().y), Vec2::splat(22.0));
-        icon.image(color, 22.0).paint_at(ui, icon_rect);
+            Rect::from_center_size(pos2(rect.left() + 22.0, rect.center().y), Vec2::splat(20.0));
+        icon.image(color, 20.0).paint_at(ui, icon_rect);
         ui.painter().text(
-            pos2(rect.left() + 46.0, rect.center().y),
+            pos2(rect.left() + 44.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             label,
-            theme::bold(15.0),
+            if active { theme::semibold(14.5) } else { theme::medium(14.5) },
             color,
         );
     }
@@ -384,14 +420,31 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 let (rect, response) =
                     ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
                 if ui.is_rect_visible(rect) {
+                    let pill = rect.shrink2(vec2(2.0, 1.0));
+                    let corner = CornerRadius::same(8);
                     if active {
-                        ui.painter()
-                            .rect_filled(rect, CornerRadius::same(6), palette.surface);
+                        ui.painter().rect_filled(
+                            pill,
+                            corner,
+                            egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 35),
+                        );
+                        ui.painter().rect_stroke(
+                            pill,
+                            corner,
+                            Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 70)),
+                            egui::StrokeKind::Inside,
+                        );
                     } else if response.hovered() {
                         ui.painter().rect_filled(
-                            rect,
-                            CornerRadius::same(6),
-                            palette.surface_hover.gamma_multiply(0.6),
+                            pill,
+                            corner,
+                            egui::Color32::from_white_alpha(14),
+                        );
+                        ui.painter().rect_stroke(
+                            pill,
+                            corner,
+                            Stroke::new(1.0, egui::Color32::from_white_alpha(22)),
+                            egui::StrokeKind::Inside,
                         );
                     }
                     let cover_rect = Rect::from_center_size(

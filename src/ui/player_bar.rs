@@ -31,7 +31,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.painter().hline(
                 rect.x_range(),
                 rect.top() + 0.5,
-                egui::Stroke::new(1.0, palette.outline),
+                egui::Stroke::new(1.0, egui::Color32::from_white_alpha(30)),
             );
             let now = app.now_playing();
             let width = rect.width();
@@ -270,19 +270,14 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         } else {
             Icon::PlayFilled
         };
-        let hover = if palette.dark {
-            egui::Color32::WHITE
-        } else {
-            palette.text
-        };
         let mut cell = centered(ui, disc);
         if theme::circle_button(
             &mut cell,
             icon,
             36.0,
-            palette.text,
-            hover,
-            palette.window,
+            palette.accent,
+            palette.accent_hover,
+            palette.on_accent,
             if playing { "Pause" } else { "Play" },
         )
         .clicked()
