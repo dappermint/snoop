@@ -13,6 +13,19 @@ a mac-first fork of [fastpotify](https://github.com/crmne/fastpotify): native, l
 - **zero electron bloat:** starts in under a second and stays tiny in memory while playing gapless 320 kbps audio
 - **nix flake + direnv:** reproducible dev environment out of the box
 
+## memory footprint
+
+measured on macos (apple silicon) during active playback:
+
+| metric | snoop | official spotify client | difference |
+| --- | --- | --- | --- |
+| resident memory (rss) | ~255 mb | ~1,515 mb (~1.5 gb) | ~6x less |
+| physical footprint | ~320 mb | ~811 mb | ~2.5x less |
+| processes | 1 native binary | 7 (cef main + helpers) | 7x fewer |
+| threads | ~35 | ~153 | ~4.4x fewer |
+
+regular spotify runs multiple chromium helper processes for rendering, audio, network, and crash handling. snoop runs ui and audio in a single lightweight rust process with zero webview overhead.
+
 ## what it does
 
 - **plays music locally:** acts as a native spotify connect receiver, gapless playback up to 320 kbps with optional normalization and audio cache
