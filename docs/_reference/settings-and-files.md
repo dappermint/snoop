@@ -16,6 +16,7 @@ Fastpotify follows each platform's conventions. On Linux:
 | Last session | `~/.local/state/fastpotify/session.json` | Yes |
 | Audio cache | `~/.cache/fastpotify/audio/` | Always |
 | Artwork cache | `~/.cache/fastpotify/art/` | Always |
+| Lyrics cache | `~/.cache/fastpotify/lyrics/` | Always |
 | Last run's log | `~/.local/state/fastpotify/snoop.log` | Always |
 | Crash log | `~/.local/state/fastpotify/panic.log` | Always |
 
@@ -47,6 +48,7 @@ One readable JSON file, written atomically. The interesting fields:
 | `theme` | `dark` | `dark`, `light`, or `system` |
 | `accent_from_art` | `true` | Tint pages with album art |
 | `keep_playing_in_background` | `true` | Close to tray |
+| `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
 | `web_client_id` | none | Your own Spotify app id, if you set one |
 
 ## Command line

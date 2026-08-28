@@ -12,6 +12,10 @@ use clap::Parser;
 #[derive(Debug, Parser)]
 #[command(name = "snoop", version, about)]
 struct Cli {
+    /// A command for the running instance; without one, the app starts.
+    #[command(subcommand)]
+    control: Option<Control>,
+
     /// Spotify Connect device name for this session.
     #[arg(long)]
     device_name: Option<String>,
@@ -51,8 +55,135 @@ struct Cli {
     demo_shot_delay: u64,
 }
 
+/// Remote control of the running instance, for Raycast scripts, launchers,
+/// and hands on keyboards.
+#[derive(Debug, clap::Subcommand)]
+enum Control {
+    /// Toggle play/pause
+    PlayPause,
+    /// Start playback if paused
+    Play,
+    /// Pause playback if playing
+    Pause,
+    /// Skip to the next track
+    Next,
+    /// Return to the previous track
+    Previous,
+    /// Seek by this many seconds; negative seeks backwards
+    Seek {
+        #[arg(allow_negative_numbers = true)]
+        seconds: i64,
+    },
+    /// Set the volume to a percentage
+    Volume {
+        #[arg(value_parser = clap::value_parser!(u8).range(0..=100))]
+        percent: u8,
+    },
+    /// Raise the volume
+    VolumeUp {
+        #[arg(default_value_t = 10, value_parser = clap::value_parser!(u8).range(1..=100))]
+        percent: u8,
+    },
+    /// Lower the volume
+    VolumeDown {
+        #[arg(default_value_t = 10, value_parser = clap::value_parser!(u8).range(1..=100))]
+        percent: u8,
+    },
+    /// Toggle mute
+    Mute,
+    /// Toggle shuffle
+    Shuffle,
+    /// Cycle the repeat mode
+    Repeat,
+    /// Print the playing track
+    NowPlaying {
+        /// Print the fields tab-separated instead: state, title, artists,
+        /// album, position_ms, duration_ms, volume, shuffle, repeat.
+        #[arg(long)]
+        raw: bool,
+    },
+    /// Bring the window of the running instance forward
+    Show,
+}
+
+/// Sends one control verb to the running instance. Speaks over the
+/// single-instance loopback socket, which Linux does not have.
+#[cfg(not(target_os = "linux"))]
+fn run_control(control: Control) -> i32 {
+    let raw = matches!(control, Control::NowPlaying { raw: true });
+    let verb = match control {
+        Control::PlayPause => "playpause".to_owned(),
+        Control::Play => "play".to_owned(),
+        Control::Pause => "pause".to_owned(),
+        Control::Next => "next".to_owned(),
+        Control::Previous => "previous".to_owned(),
+        Control::Seek { seconds } => format!("seek-by {}", seconds.saturating_mul(1000)),
+        Control::Volume { percent } => format!("volume-set {percent}"),
+        Control::VolumeUp { percent } => format!("volume-by {percent}"),
+        Control::VolumeDown { percent } => format!("volume-by -{percent}"),
+        Control::Mute => "mute".to_owned(),
+        Control::Shuffle => "shuffle".to_owned(),
+        Control::Repeat => "repeat".to_owned(),
+        Control::NowPlaying { .. } => "nowplaying".to_owned(),
+        Control::Show => "show".to_owned(),
+    };
+    match single_instance::send(&verb) {
+        Ok(single_instance::Reply::Ok) => 0,
+        Ok(single_instance::Reply::NowPlaying(snapshot)) => {
+            if raw {
+                println!("{snapshot}");
+            } else {
+                println!("{}", format_now_playing(&snapshot));
+            }
+            0
+        }
+        Err(error) => {
+            eprintln!("Snoop is not running, or predates remote control: {error}");
+            1
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn run_control(_control: Control) -> i32 {
+    eprintln!(
+        "On Linux the running instance speaks MPRIS instead; use e.g. \
+         `playerctl --player=snoop play-pause`."
+    );
+    2
+}
+
+/// The `nowplaying` snapshot as one human-readable line.
+#[cfg(not(target_os = "linux"))]
+fn format_now_playing(snapshot: &str) -> String {
+    let mut fields = snapshot.split('\t');
+    let state = fields.next().unwrap_or_default();
+    let title = fields.next().unwrap_or_default();
+    let artists = fields.next().unwrap_or_default();
+    let _album = fields.next();
+    let position_ms: u32 = fields.next().and_then(|ms| ms.parse().ok()).unwrap_or(0);
+    let duration_ms: u32 = fields.next().and_then(|ms| ms.parse().ok()).unwrap_or(0);
+    let clock = |ms: u32| format!("{}:{:02}", ms / 60_000, ms % 60_000 / 1000);
+    match state {
+        "playing" | "paused" => {
+            let mark = if state == "playing" { "▶" } else { "⏸" };
+            format!(
+                "{mark} {title} — {artists}  [{} / {}]",
+                clock(position_ms),
+                clock(duration_ms)
+            )
+        }
+        _ => "Nothing playing".to_owned(),
+    }
+}
+
 fn main() -> eframe::Result<()> {
     let cli = Cli::parse();
+    // A control launch is a client, not a second app: talk to the running
+    // instance and exit before touching the log file it is writing to.
+    if let Some(control) = cli.control {
+        std::process::exit(run_control(control));
+    }
     let default_filter = if cli.verbose {
         "info,librespot=info,snoop=debug"
     } else {
@@ -120,7 +251,7 @@ fn main() -> eframe::Result<()> {
     #[allow(unused_mut)]
     let mut app = app::App::new(&waker, dirs, settings, options);
     if let Some(guard) = &instance {
-        app.set_show_requests(guard.show_requests());
+        app.set_remote_control(guard);
     }
     #[cfg(feature = "demo")]
     if demo {
@@ -160,6 +291,15 @@ fn main() -> eframe::Result<()> {
                     .unwrap_or_else(|p| p.into_inner())
                     .take()
                     .expect("application state present");
+                // Built once per window, before the first frame; the handler
+                // wakes the loop so a menu pick is not held until the next
+                // repaint.
+                #[cfg(target_os = "macos")]
+                {
+                    snoop::mac_menu::init();
+                    let ctx = cc.egui_ctx.clone();
+                    snoop::mac_menu::set_waker(move || ctx.request_repaint());
+                }
                 app.attach(&cc.egui_ctx);
                 Ok(Box::new(Shell {
                     app: Some(app),
@@ -183,13 +323,11 @@ fn main() -> eframe::Result<()> {
         // Tray life: no window, but audio, MPRIS, the tray, and polling all
         // keep running until Show or Quit.
         let headless = egui::Context::default();
-        {
-            let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
-            let app = guard.as_mut().expect("application state present");
-            app.window_hidden = true;
-            app.hide_intent = false;
-            app.wants_show = false;
-        }
+        slot.lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_mut()
+            .expect("application state present")
+            .window_gone();
         loop {
             {
                 let mut guard = slot.lock().unwrap_or_else(|p| p.into_inner());
@@ -199,7 +337,7 @@ fn main() -> eframe::Result<()> {
                     break;
                 }
             }
-            std::thread::sleep(std::time::Duration::from_millis(150));
+            snoop::tray::idle(std::time::Duration::from_millis(150));
         }
         let quit = {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
@@ -368,70 +506,63 @@ impl eframe::App for Shell {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(app) = self.app.as_mut() {
             #[cfg(target_os = "macos")]
-            for cmd in snoop::mac_menu::drain_commands() {
-                match cmd {
-                    snoop::mac_menu::MenuCommand::PlayPause => {
-                        app.actions.push(snoop::model::Action::TogglePlay)
-                    }
-                    snoop::mac_menu::MenuCommand::Next => {
-                        app.actions.push(snoop::model::Action::Next)
-                    }
-                    snoop::mac_menu::MenuCommand::Previous => {
-                        app.actions.push(snoop::model::Action::Previous)
-                    }
-                    snoop::mac_menu::MenuCommand::SeekForward => {
-                        app.actions.push(snoop::model::Action::SeekBy(10_000))
-                    }
-                    snoop::mac_menu::MenuCommand::SeekBackward => {
-                        app.actions.push(snoop::model::Action::SeekBy(-10_000))
-                    }
-                    snoop::mac_menu::MenuCommand::ToggleShuffle => {
-                        app.actions.push(snoop::model::Action::ToggleShuffle)
-                    }
-                    snoop::mac_menu::MenuCommand::CycleRepeat => {
-                        app.actions.push(snoop::model::Action::CycleRepeat)
-                    }
-                    snoop::mac_menu::MenuCommand::VolumeUp => {
-                        app.actions.push(snoop::model::Action::VolumeBy(5))
-                    }
-                    snoop::mac_menu::MenuCommand::VolumeDown => {
-                        app.actions.push(snoop::model::Action::VolumeBy(-5))
-                    }
-                    snoop::mac_menu::MenuCommand::ToggleMute => {
-                        app.actions.push(snoop::model::Action::ToggleMute)
-                    }
-                    snoop::mac_menu::MenuCommand::Home => app
-                        .actions
-                        .push(snoop::model::Action::Open(snoop::model::Page::Home)),
-                    snoop::mac_menu::MenuCommand::Search => {
-                        app.actions.push(snoop::model::Action::FocusSearch)
-                    }
-                    snoop::mac_menu::MenuCommand::LikedSongs => app
-                        .actions
-                        .push(snoop::model::Action::Open(snoop::model::Page::LikedSongs)),
-                    snoop::mac_menu::MenuCommand::Queue => {
-                        app.actions.push(snoop::model::Action::ToggleQueuePanel)
-                    }
-                    snoop::mac_menu::MenuCommand::Settings => app
-                        .actions
-                        .push(snoop::model::Action::Open(snoop::model::Page::Settings)),
-                    snoop::mac_menu::MenuCommand::Shortcuts => app.actions.push(
-                        snoop::model::Action::ShowDialog(snoop::model::Dialog::Shortcuts),
-                    ),
-                    snoop::mac_menu::MenuCommand::Back => {
-                        app.actions.push(snoop::model::Action::Back)
-                    }
-                    snoop::mac_menu::MenuCommand::Forward => {
-                        app.actions.push(snoop::model::Action::Forward)
-                    }
-                    snoop::mac_menu::MenuCommand::OpenRepo => {
+            for command in snoop::mac_menu::drain_commands() {
+                use snoop::mac_menu::MenuCommand;
+                use snoop::model::{Action, Dialog, Page};
+                let action = match command {
+                    MenuCommand::PlayPause => Action::TogglePlay,
+                    MenuCommand::Next => Action::Next,
+                    MenuCommand::Previous => Action::Previous,
+                    MenuCommand::SeekForward => Action::SeekBy(10_000),
+                    MenuCommand::SeekBackward => Action::SeekBy(-10_000),
+                    MenuCommand::ToggleShuffle => Action::ToggleShuffle,
+                    MenuCommand::CycleRepeat => Action::CycleRepeat,
+                    MenuCommand::VolumeUp => Action::VolumeBy(5),
+                    MenuCommand::VolumeDown => Action::VolumeBy(-5),
+                    MenuCommand::ToggleMute => Action::ToggleMute,
+                    MenuCommand::Home => Action::Open(Page::Home),
+                    MenuCommand::Search => Action::FocusSearch,
+                    MenuCommand::LikedSongs => Action::Open(Page::LikedSongs),
+                    MenuCommand::Queue => Action::ToggleQueuePanel,
+                    MenuCommand::Settings => Action::Open(Page::Settings),
+                    MenuCommand::Shortcuts => Action::ShowDialog(Dialog::Shortcuts),
+                    MenuCommand::Back => Action::Back,
+                    MenuCommand::Forward => Action::Forward,
+                    MenuCommand::OpenRepo => {
                         ctx.open_url(egui::OpenUrl::new_tab(
                             "https://github.com/dappermint/snoop",
                         ));
+                        continue;
                     }
-                }
+                    // Editing goes through egui, which owns the text field
+                    // and the clipboard.
+                    MenuCommand::Cut => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestCut);
+                        continue;
+                    }
+                    MenuCommand::Copy => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestCopy);
+                        continue;
+                    }
+                    MenuCommand::Paste => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                        continue;
+                    }
+                    MenuCommand::SelectAll => {
+                        ctx.input_mut(|input| {
+                            input.events.push(egui::Event::Key {
+                                key: egui::Key::A,
+                                physical_key: None,
+                                pressed: true,
+                                repeat: false,
+                                modifiers: egui::Modifiers::COMMAND,
+                            });
+                        });
+                        continue;
+                    }
+                };
+                app.actions.push(action);
             }
-
             app.background_frame(ctx);
         }
         #[cfg(feature = "demo")]

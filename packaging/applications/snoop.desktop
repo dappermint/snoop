@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Snoop
+GenericName=Music Player
+Comment=A fast, native Spotify client
+Exec=snoop
+Terminal=false
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=spotify;music;player;streaming;
+Icon=snoop
+StartupNotify=true
+StartupWMClass=snoop
+MimeType=x-scheme-handler/spotify;

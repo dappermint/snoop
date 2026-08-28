@@ -19,14 +19,15 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         key(Modifiers::COMMAND, Key::Q, Action::Quit);
         // ⌘H is Hide Application on macOS and the system menu wins it, so
         // Home moves aside there.
-        #[cfg(target_os = "macos")]
-        key(
-            Modifiers::COMMAND | Modifiers::SHIFT,
-            Key::H,
-            Action::Open(Page::Home),
-        );
-        #[cfg(not(target_os = "macos"))]
-        key(Modifiers::COMMAND, Key::H, Action::Open(Page::Home));
+        if cfg!(target_os = "macos") {
+            key(
+                Modifiers::COMMAND | Modifiers::SHIFT,
+                Key::H,
+                Action::Open(Page::Home),
+            );
+        } else {
+            key(Modifiers::COMMAND, Key::H, Action::Open(Page::Home));
+        }
         key(Modifiers::COMMAND, Key::L, Action::Open(Page::LikedSongs));
         key(
             Modifiers::COMMAND,
@@ -55,14 +56,15 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             Action::OpenUri("album".into()),
         );
         // ⌘⇧Q is Log Out on macOS; the queue takes ⌘U there instead.
-        #[cfg(target_os = "macos")]
-        key(Modifiers::COMMAND, Key::U, Action::ToggleQueuePanel);
-        #[cfg(not(target_os = "macos"))]
-        key(
-            Modifiers::COMMAND | Modifiers::SHIFT,
-            Key::Q,
-            Action::ToggleQueuePanel,
-        );
+        if cfg!(target_os = "macos") {
+            key(Modifiers::COMMAND, Key::U, Action::ToggleQueuePanel);
+        } else {
+            key(
+                Modifiers::COMMAND | Modifiers::SHIFT,
+                Key::Q,
+                Action::ToggleQueuePanel,
+            );
+        }
         if !typing {
             key(Modifiers::SHIFT, Key::ArrowLeft, Action::SeekBy(-10_000));
             key(Modifiers::SHIFT, Key::ArrowRight, Action::SeekBy(10_000));
@@ -71,6 +73,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::NONE, Key::S, Action::ToggleShuffle);
             key(Modifiers::NONE, Key::R, Action::CycleRepeat);
             key(Modifiers::NONE, Key::Q, Action::ToggleQueuePanel);
+            key(Modifiers::NONE, Key::L, Action::ToggleLyricsPanel);
             key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
         }
     });
@@ -137,9 +140,17 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("S", "Toggle shuffle"),
     ("R", "Cycle repeat"),
     ("Q", "Show the queue"),
+    ("L", "Show the lyrics"),
     ("Ctrl+F  or  /", "Search"),
     ("Alt+←  /  Alt+→", "Back or forward"),
-    ("Ctrl+H", "Home"),
+    (
+        if cfg!(target_os = "macos") {
+            "Ctrl+Shift+H"
+        } else {
+            "Ctrl+H"
+        },
+        "Home",
+    ),
     ("Ctrl+L", "Liked Songs"),
     ("Ctrl+Shift+A", "Go to the playing artist"),
     ("Ctrl+Shift+B", "Go to the playing album"),

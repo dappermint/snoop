@@ -21,6 +21,10 @@ pub enum MenuCommand {
     Back,
     Forward,
     OpenRepo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -41,7 +45,7 @@ pub use mac_impl::*;
 mod mac_impl {
     use objc2::rc::Retained;
     use objc2::runtime::Sel;
-    use objc2::{ClassType, DeclaredClass, declare_class, mutability, sel};
+    use objc2::{MainThreadOnly, define_class, sel};
     use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem};
     use objc2_foundation::{MainThreadMarker, NSObject, NSString, ns_string};
     use std::sync::Mutex;
@@ -76,111 +80,131 @@ mod mac_impl {
         }
     }
 
-    declare_class!(
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "SnoopMenuHandler"]
         pub struct SnoopMenuHandler;
 
-        unsafe impl ClassType for SnoopMenuHandler {
-            type Super = NSObject;
-            type Mutability = mutability::MainThreadOnly;
-            const NAME: &'static str = "SnoopMenuHandler";
-        }
-
-        impl DeclaredClass for SnoopMenuHandler {}
-
-        unsafe impl SnoopMenuHandler {
-            #[method(openSettings:)]
+        impl SnoopMenuHandler {
+            #[unsafe(method(openSettings:))]
             fn open_settings(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Settings);
             }
 
-            #[method(playPause:)]
+            #[unsafe(method(playPause:))]
             fn play_pause(&self, _sender: &NSObject) {
                 push_command(MenuCommand::PlayPause);
             }
 
-            #[method(nextTrack:)]
+            #[unsafe(method(nextTrack:))]
             fn next_track(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Next);
             }
 
-            #[method(previousTrack:)]
+            #[unsafe(method(previousTrack:))]
             fn previous_track(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Previous);
             }
 
-            #[method(seekForward:)]
+            #[unsafe(method(seekForward:))]
             fn seek_forward(&self, _sender: &NSObject) {
                 push_command(MenuCommand::SeekForward);
             }
 
-            #[method(seekBackward:)]
+            #[unsafe(method(seekBackward:))]
             fn seek_backward(&self, _sender: &NSObject) {
                 push_command(MenuCommand::SeekBackward);
             }
 
-            #[method(toggleShuffle:)]
+            #[unsafe(method(toggleShuffle:))]
             fn toggle_shuffle(&self, _sender: &NSObject) {
                 push_command(MenuCommand::ToggleShuffle);
             }
 
-            #[method(cycleRepeat:)]
+            #[unsafe(method(cycleRepeat:))]
             fn cycle_repeat(&self, _sender: &NSObject) {
                 push_command(MenuCommand::CycleRepeat);
             }
 
-            #[method(volumeUp:)]
+            #[unsafe(method(volumeUp:))]
             fn volume_up(&self, _sender: &NSObject) {
                 push_command(MenuCommand::VolumeUp);
             }
 
-            #[method(volumeDown:)]
+            #[unsafe(method(volumeDown:))]
             fn volume_down(&self, _sender: &NSObject) {
                 push_command(MenuCommand::VolumeDown);
             }
 
-            #[method(toggleMute:)]
+            #[unsafe(method(toggleMute:))]
             fn toggle_mute(&self, _sender: &NSObject) {
                 push_command(MenuCommand::ToggleMute);
             }
 
-            #[method(openHome:)]
+            #[unsafe(method(openHome:))]
             fn open_home(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Home);
             }
 
-            #[method(focusSearch:)]
+            #[unsafe(method(focusSearch:))]
             fn focus_search(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Search);
             }
 
-            #[method(openLikedSongs:)]
+            #[unsafe(method(openLikedSongs:))]
             fn open_liked_songs(&self, _sender: &NSObject) {
                 push_command(MenuCommand::LikedSongs);
             }
 
-            #[method(toggleQueue:)]
+            #[unsafe(method(toggleQueue:))]
             fn toggle_queue(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Queue);
             }
 
-            #[method(goBack:)]
+            #[unsafe(method(goBack:))]
             fn go_back(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Back);
             }
 
-            #[method(goForward:)]
+            #[unsafe(method(goForward:))]
             fn go_forward(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Forward);
             }
 
-            #[method(showShortcuts:)]
+            #[unsafe(method(showShortcuts:))]
             fn show_shortcuts(&self, _sender: &NSObject) {
                 push_command(MenuCommand::Shortcuts);
             }
 
-            #[method(openRepo:)]
+            #[unsafe(method(openRepo:))]
             fn open_repo(&self, _sender: &NSObject) {
                 push_command(MenuCommand::OpenRepo);
+            }
+
+            // The Edit items answer to this handler rather than to the
+            // responder chain: winit's view implements none of the standard
+            // editing selectors, so a menu item aimed there does nothing,
+            // while its key equivalent still takes the chord away from the
+            // window. Routed through egui, the same item and chord work.
+            #[unsafe(method(editCut:))]
+            fn edit_cut(&self, _sender: &NSObject) {
+                push_command(MenuCommand::Cut);
+            }
+
+            #[unsafe(method(editCopy:))]
+            fn edit_copy(&self, _sender: &NSObject) {
+                push_command(MenuCommand::Copy);
+            }
+
+            #[unsafe(method(editPaste:))]
+            fn edit_paste(&self, _sender: &NSObject) {
+                push_command(MenuCommand::Paste);
+            }
+
+            #[unsafe(method(editSelectAll:))]
+            fn edit_select_all(&self, _sender: &NSObject) {
+                push_command(MenuCommand::SelectAll);
             }
         }
     );
@@ -212,10 +236,8 @@ mod mac_impl {
         let container_item = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), title, None, ns_string!(""))
         };
-        let menu = unsafe { NSMenu::initWithTitle(mtm.alloc(), title) };
-        unsafe {
-            menu.setAutoenablesItems(false);
-        }
+        let menu = NSMenu::initWithTitle(mtm.alloc(), title);
+        menu.setAutoenablesItems(false);
         container_item.setSubmenu(Some(&menu));
         (container_item, menu)
     }
@@ -225,7 +247,7 @@ mod mac_impl {
             return;
         };
         let app = NSApplication::sharedApplication(mtm);
-        let Some(menubar) = (unsafe { app.mainMenu() }) else {
+        let Some(menubar) = app.mainMenu() else {
             return;
         };
 
@@ -236,12 +258,12 @@ mod mac_impl {
         }
 
         let handler: Retained<SnoopMenuHandler> =
-            unsafe { objc2::msg_send_id![mtm.alloc::<SnoopMenuHandler>(), init] };
+            unsafe { objc2::msg_send![mtm.alloc::<SnoopMenuHandler>(), init] };
         let target: &NSObject = &handler;
 
         // 1. Settings item in app menu (first menu)
-        if let Some(app_menu_item) = unsafe { menubar.itemAtIndex(0) }
-            && let Some(app_menu) = unsafe { app_menu_item.submenu() }
+        if let Some(app_menu_item) = menubar.itemAtIndex(0)
+            && let Some(app_menu) = app_menu_item.submenu()
         {
             let settings_item = create_item(
                 mtm,
@@ -252,10 +274,8 @@ mod mac_impl {
                 Some(target),
             );
             let sep = NSMenuItem::separatorItem(mtm);
-            unsafe {
-                app_menu.insertItem_atIndex(&settings_item, 1);
-                app_menu.insertItem_atIndex(&sep, 2);
-            }
+            app_menu.insertItem_atIndex(&settings_item, 1);
+            app_menu.insertItem_atIndex(&sep, 2);
         }
 
         // 2. File menu
@@ -270,59 +290,41 @@ mod mac_impl {
         ));
         menubar.addItem(&file_item);
 
-        // 3. Edit menu
+        // 3. Edit menu. No Undo and Redo: egui's text fields handle Cmd+Z
+        // themselves, and a menu item holding that chord would take it
+        // from them.
         let (edit_item, edit_menu) = create_menu(mtm, ns_string!("Edit"));
         edit_menu.addItem(&create_item(
             mtm,
-            ns_string!("Undo"),
-            Some(sel!(undo:)),
-            ns_string!("z"),
-            None,
-            None,
-        ));
-        edit_menu.addItem(&create_item(
-            mtm,
-            ns_string!("Redo"),
-            Some(sel!(redo:)),
-            ns_string!("Z"),
-            Some(
-                NSEventModifierFlags::NSEventModifierFlagCommand
-                    | NSEventModifierFlags::NSEventModifierFlagShift,
-            ),
-            None,
-        ));
-        edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
-        edit_menu.addItem(&create_item(
-            mtm,
             ns_string!("Cut"),
-            Some(sel!(cut:)),
+            Some(sel!(editCut:)),
             ns_string!("x"),
             None,
-            None,
+            Some(target),
         ));
         edit_menu.addItem(&create_item(
             mtm,
             ns_string!("Copy"),
-            Some(sel!(copy:)),
+            Some(sel!(editCopy:)),
             ns_string!("c"),
             None,
-            None,
+            Some(target),
         ));
         edit_menu.addItem(&create_item(
             mtm,
             ns_string!("Paste"),
-            Some(sel!(paste:)),
+            Some(sel!(editPaste:)),
             ns_string!("v"),
             None,
-            None,
+            Some(target),
         ));
         edit_menu.addItem(&create_item(
             mtm,
             ns_string!("Select All"),
-            Some(sel!(selectAll:)),
+            Some(sel!(editSelectAll:)),
             ns_string!("a"),
             None,
-            None,
+            Some(target),
         ));
         menubar.addItem(&edit_item);
 
@@ -341,7 +343,7 @@ mod mac_impl {
             ns_string!("Next Track"),
             Some(sel!(nextTrack:)),
             &NSString::from_str("\u{F703}"), // Right arrow
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         playback_menu.addItem(&create_item(
@@ -349,7 +351,7 @@ mod mac_impl {
             ns_string!("Previous Track"),
             Some(sel!(previousTrack:)),
             &NSString::from_str("\u{F702}"), // Left arrow
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         playback_menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -396,7 +398,7 @@ mod mac_impl {
             ns_string!("Increase Volume"),
             Some(sel!(volumeUp:)),
             &NSString::from_str("\u{F700}"), // Up arrow
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         playback_menu.addItem(&create_item(
@@ -404,7 +406,7 @@ mod mac_impl {
             ns_string!("Decrease Volume"),
             Some(sel!(volumeDown:)),
             &NSString::from_str("\u{F701}"), // Down arrow
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         playback_menu.addItem(&create_item(
@@ -424,7 +426,7 @@ mod mac_impl {
             ns_string!("Back"),
             Some(sel!(goBack:)),
             ns_string!("["),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         view_menu.addItem(&create_item(
@@ -432,7 +434,7 @@ mod mac_impl {
             ns_string!("Forward"),
             Some(sel!(goForward:)),
             ns_string!("]"),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         view_menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -441,10 +443,7 @@ mod mac_impl {
             ns_string!("Home"),
             Some(sel!(openHome:)),
             ns_string!("H"),
-            Some(
-                NSEventModifierFlags::NSEventModifierFlagCommand
-                    | NSEventModifierFlags::NSEventModifierFlagShift,
-            ),
+            Some(NSEventModifierFlags::Command | NSEventModifierFlags::Shift),
             Some(target),
         ));
         view_menu.addItem(&create_item(
@@ -452,7 +451,7 @@ mod mac_impl {
             ns_string!("Search"),
             Some(sel!(focusSearch:)),
             ns_string!("f"),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         view_menu.addItem(&create_item(
@@ -460,7 +459,7 @@ mod mac_impl {
             ns_string!("Liked Songs"),
             Some(sel!(openLikedSongs:)),
             ns_string!("l"),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         view_menu.addItem(&create_item(
@@ -468,7 +467,7 @@ mod mac_impl {
             ns_string!("Queue"),
             Some(sel!(toggleQueue:)),
             ns_string!("u"),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         view_menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -477,10 +476,7 @@ mod mac_impl {
             ns_string!("Toggle Full Screen"),
             Some(sel!(toggleFullScreen:)),
             ns_string!("f"),
-            Some(
-                NSEventModifierFlags::NSEventModifierFlagControl
-                    | NSEventModifierFlags::NSEventModifierFlagCommand,
-            ),
+            Some(NSEventModifierFlags::Control | NSEventModifierFlags::Command),
             None,
         ));
         menubar.addItem(&view_item);
@@ -492,7 +488,7 @@ mod mac_impl {
             ns_string!("Minimize"),
             Some(sel!(performMiniaturize:)),
             ns_string!("m"),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             None,
         ));
         window_menu.addItem(&create_item(
@@ -521,7 +517,7 @@ mod mac_impl {
             ns_string!("Keyboard Shortcuts"),
             Some(sel!(showShortcuts:)),
             ns_string!("/"),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(NSEventModifierFlags::Command),
             Some(target),
         ));
         help_menu.addItem(&create_item(

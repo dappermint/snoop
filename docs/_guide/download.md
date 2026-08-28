@@ -17,7 +17,19 @@ One download for both Apple Silicon and Intel:
 
 - [fastpotify-v{{ v }}-macos-universal.dmg]({{ base }}/fastpotify-v{{ v }}-macos-universal.dmg)
 
-Open it and drag **Fastpotify** to Applications.
+Open it and drag **Fastpotify** to Applications. Or, with
+[Homebrew](https://brew.sh):
+
+```sh
+brew install --cask crmne/tap/fastpotify
+```
+
+Homebrew installs it like any download, so the first-open steps below
+apply once. To skip them, clear the quarantine flag instead:
+
+```sh
+xattr -d com.apple.quarantine /Applications/Fastpotify.app
+```
 
 ### First open on macOS
 
@@ -38,13 +50,21 @@ double-click. This step disappears once notarized builds ship.
 
 ## Windows
 
-Almost every PC wants the first one; the second is for Windows on ARM:
+The installer adds Fastpotify to the Start menu and needs no administrator
+rights. Almost every PC wants the first one; the second is for Windows on
+ARM:
+
+- [fastpotify-v{{ v }}-x86_64-pc-windows-msvc-setup.exe]({{ base }}/fastpotify-v{{ v }}-x86_64-pc-windows-msvc-setup.exe)
+- [fastpotify-v{{ v }}-aarch64-pc-windows-msvc-setup.exe]({{ base }}/fastpotify-v{{ v }}-aarch64-pc-windows-msvc-setup.exe)
+
+If you would rather not install anything, the same program comes as a zip:
+unpack it and run `fastpotify.exe`.
 
 - [fastpotify-v{{ v }}-x86_64-pc-windows-msvc.zip]({{ base }}/fastpotify-v{{ v }}-x86_64-pc-windows-msvc.zip)
 - [fastpotify-v{{ v }}-aarch64-pc-windows-msvc.zip]({{ base }}/fastpotify-v{{ v }}-aarch64-pc-windows-msvc.zip)
 
-Unpack and run `fastpotify.exe`. SmartScreen may warn about an unknown
-publisher on first run; choose More info, then Run anyway.
+Either way, SmartScreen may warn about an unknown publisher on first run;
+choose More info, then Run anyway.
 
 ## Linux
 
@@ -55,6 +75,16 @@ Fastpotify is in the AUR, with the desktop entry and icon installed for you:
 ```sh
 yay -S fastpotify          # the released build
 yay -S fastpotify-git      # built from the latest commit
+```
+
+### Flatpak
+
+[FlatPark](https://flatpark.org/apps/rocks.fastpotify.Fastpotify) packages
+each Linux release as a sandboxed Flatpak and follows every new version:
+
+```sh
+flatpak remote-add --if-not-exists flatpark https://dl.flatpark.org/flatpark.flatpakrepo
+flatpak install flatpark rocks.fastpotify.Fastpotify
 ```
 
 ### Other distributions

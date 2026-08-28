@@ -56,6 +56,10 @@ pub struct Settings {
     pub playback_authorized: bool,
     /// Closing the window hides to the tray and keeps the music playing.
     pub keep_playing_in_background: bool,
+    /// Ask GitHub once a day whether a newer release exists.
+    pub check_for_updates: bool,
+    /// Context URIs pinned to the top of the sidebar, in pin order.
+    pub pinned_contexts: Vec<String>,
 }
 
 impl Default for Settings {
@@ -79,6 +83,8 @@ impl Default for Settings {
             web_client_id: None,
             playback_authorized: false,
             keep_playing_in_background: true,
+            check_for_updates: true,
+            pinned_contexts: Vec::new(),
         }
     }
 }
@@ -139,6 +145,12 @@ impl Settings {
 #[serde(default)]
 pub struct SessionState {
     pub last_page: Option<String>,
+    /// Context URIs most recently played, newest first.
+    pub recent_contexts: Vec<String>,
+    /// What was playing when the app closed, to resume from a cold start.
+    pub last_context: Option<String>,
+    pub last_track: Option<String>,
+    pub last_position_ms: u32,
 }
 
 impl SessionState {

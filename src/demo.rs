@@ -288,6 +288,7 @@ pub fn populate(app: &mut App) {
                         1 + index % 27
                     )),
                     is_local: false,
+                    added_by: None,
                     item: Some(PlayableItem::Track(track.clone())),
                     track: None,
                 })
@@ -309,6 +310,7 @@ pub fn populate(app: &mut App) {
                 .map(|track| PlaylistItem {
                     added_at: Some("2026-08-24T05:00:00Z".into()),
                     is_local: false,
+                    added_by: None,
                     item: Some(PlayableItem::Track(track.clone())),
                     track: None,
                 })
@@ -421,6 +423,8 @@ pub fn populate(app: &mut App) {
     );
     app.home.top_artists = Loadable::Loaded((0..8).map(artist).collect());
     app.home.top_tracks = Loadable::Loaded(tracks.iter().skip(10).take(10).cloned().collect());
+    app.home.top_songs = Loadable::Loaded(tracks.iter().skip(10).cloned().collect());
+    app.home.top_songs_complete = true;
     app.home.recommendations = Loadable::Loaded(tracks.iter().skip(20).take(10).cloned().collect());
     for term in DISCOVER_TERMS {
         let matching: Vec<Playlist> = playlists
@@ -519,6 +523,39 @@ pub fn populate(app: &mut App) {
     }
 }
 
+/// Words to go with the sample track, timed so that the one being sung
+/// sits mid-panel at the demo's playback position.
+#[cfg(feature = "demo")]
+fn sample_lyrics() -> crate::lyrics::Lyrics {
+    let lines = [
+        (40_000, "Streetlights blinking down the river road"),
+        (46_500, "Every window holding someone's evening"),
+        (53_000, "I keep the radio low so you can sleep"),
+        (59_500, "Counting mile markers like a rosary"),
+        (66_000, "We left the city with the tank half full"),
+        (72_500, "And a map that only shows the way back"),
+        (79_000, "But the night is wide and the road is long"),
+        (85_500, "And there's nowhere I would rather be"),
+        (92_000, "Coffee going cold in the cup holder"),
+        (98_500, "Your hand asleep on the gear stick"),
+        (105_000, "Somewhere past the county line"),
+        (111_500, "The stars come out to see us through"),
+        (118_000, "Still the night is wide and the road is long"),
+        (124_500, "And there's nowhere I would rather be"),
+    ];
+    crate::lyrics::Lyrics {
+        lines: lines
+            .iter()
+            .map(|(at_ms, text)| crate::lyrics::Line {
+                at_ms: Some(*at_ms),
+                text: (*text).to_string(),
+            })
+            .collect(),
+        synced: true,
+        instrumental: false,
+    }
+}
+
 /// Applies `--demo-page` and `--demo-show`.
 #[cfg(feature = "demo")]
 pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
@@ -540,6 +577,79 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "light" => {
                 app.settings.theme = crate::settings::ThemeChoice::Light;
                 app.actions.push(Action::SettingsChanged);
+            }
+            "lyrics" => {
+                app.lyrics_uri = app.now_playing().map(|now| now.uri);
+                app.lyrics = Loadable::Loaded(Some(sample_lyrics()));
+                app.lyrics_following = true;
+                app.show_lyrics_panel = true;
+            }
+            // Titles in scripts the interface font does not cover.
+            "scripts" => {
+                let titles = [
+                    ("\u{591c}\u{306b}\u{99c6}\u{3051}\u{308b}", "YOASOBI"),
+                    (
+                        "\u{8d77}\u{98ce}\u{4e86}",
+                        "\u{4e70}\u{8fa3}\u{6912}\u{4e5f}\u{7528}\u{5238}",
+                    ),
+                    (
+                        "\u{bd04}\u{c5ec}\u{b984}\u{ac00}\u{c744}\u{aca8}\u{c6b8} (Still Life)",
+                        "BIGBANG",
+                    ),
+                    (
+                        "\u{6253}\u{4e0a}\u{82b1}\u{706b}",
+                        "DAOKO, \u{7c73}\u{6d25}\u{7384}\u{5e2b}",
+                    ),
+                    (
+                        "\u{5149}\u{5e74}\u{4e4b}\u{5916}",
+                        "G.E.M. \u{9093}\u{7d2b}\u{68cb}",
+                    ),
+                    ("\u{bc24}\u{d3b8}\u{c9c0}", "IU"),
+                    ("Lemon", "\u{7c73}\u{6d25}\u{7384}\u{5e2b}"),
+                    (
+                        "\u{7ea2}\u{8272}\u{9ad8}\u{8ddf}\u{978b}",
+                        "\u{8521}\u{5065}\u{96c5}",
+                    ),
+                ];
+                let rename = |track: &mut Track, (title, artist): (&str, &str)| {
+                    track.name = title.to_string();
+                    track.artists = vec![ArtistRef {
+                        id: None,
+                        name: artist.to_string(),
+                        uri: None,
+                    }];
+                };
+                if let Some(page) = app.playlist_pages.get_mut("pl1") {
+                    for (entry, names) in page.items.items.iter_mut().zip(titles) {
+                        if let Some(PlayableItem::Track(track)) = &mut entry.item {
+                            rename(track, names);
+                        }
+                    }
+                }
+                if let Some(remote) = &mut app.remote
+                    && let Some(PlayableItem::Track(track)) = &mut remote.state.item
+                {
+                    rename(track, titles[0]);
+                }
+                if let Some(track) = app.track_cache.get_mut("trk0") {
+                    rename(track, titles[0]);
+                }
+                if let Loadable::Loaded(playlists) = &mut app.library.playlists {
+                    let names = [
+                        "\u{901a}\u{52e4}\u{306e}BGM",
+                        "\u{7761}\u{524d}\u{6b4c}\u{5355}",
+                        "\u{cd9c}\u{adfc}\u{ae38} \u{d50c}\u{b808}\u{c774}\u{b9ac}\u{c2a4}\u{d2b8}",
+                    ];
+                    for (playlist, name) in playlists.iter_mut().skip(3).zip(names) {
+                        playlist.name = name.to_string();
+                    }
+                }
+            }
+            // A Spotify app of one's own, in use.
+            "faster" => {
+                let id = "8f2c1d0e4a6b4c3d9e7f5a1b2c3d4e5f".to_string();
+                app.settings.web_client_id = Some(id.clone());
+                app.web_app = Some(id);
             }
             _ => {}
         }
@@ -593,6 +703,7 @@ mod tests {
 
         let pages = [
             Page::Home,
+            Page::TopSongs,
             Page::Search,
             Page::LikedSongs,
             Page::Albums,

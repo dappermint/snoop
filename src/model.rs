@@ -9,6 +9,7 @@ use crate::api::models::*;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Page {
     Home,
+    TopSongs,
     Search,
     LikedSongs,
     Albums,
@@ -27,6 +28,7 @@ impl Page {
     pub fn encode(&self) -> String {
         match self {
             Page::Home => "home".into(),
+            Page::TopSongs => "top-songs".into(),
             Page::Search => "search".into(),
             Page::LikedSongs => "liked".into(),
             Page::Albums => "albums".into(),
@@ -45,6 +47,7 @@ impl Page {
     pub fn decode(text: &str) -> Option<Self> {
         Some(match text {
             "home" => Page::Home,
+            "top-songs" => Page::TopSongs,
             "search" => Page::Search,
             "liked" => Page::LikedSongs,
             "albums" => Page::Albums,
@@ -235,7 +238,12 @@ pub struct Library {
 pub struct HomeData {
     pub recently_played: Loadable<Vec<PlayHistory>>,
     pub top_artists: Loadable<Vec<Artist>>,
+    /// The 20-track preview shown on Home.
     pub top_tracks: Loadable<Vec<Track>>,
+    /// The separately loaded, complete ranking shown by the Top Songs page.
+    pub top_songs: Loadable<Vec<Track>>,
+    pub top_songs_loading: bool,
+    pub top_songs_complete: bool,
     pub recommendations: Loadable<Vec<Track>>,
     pub discover: HashMap<String, Loadable<Vec<Playlist>>>,
     pub requested: bool,
@@ -296,6 +304,15 @@ pub struct PlaylistPage {
     pub playlist: Loadable<Playlist>,
     pub items: PagedList<PlaylistItem>,
     pub filter: String,
+    /// Ids of everyone who added songs, from the pages seen so far and one
+    /// look at the tail.
+    pub contributors: std::collections::BTreeSet<String>,
+    /// Whether the tail was sampled for who added its songs.
+    pub tail_checked: bool,
+    /// The whole list came from disk and matches the live snapshot.
+    pub cache_complete: bool,
+    /// Items read from disk, waiting for the live snapshot to confirm.
+    pub pending_cache: Option<(String, Vec<PlaylistItem>)>,
 }
 
 #[derive(Default)]
@@ -350,6 +367,22 @@ pub struct ArtistPage {
 pub struct ShowPage {
     pub show: Loadable<Show>,
     pub episodes: PagedList<Episode>,
+}
+
+/// A table's sort, chosen by clicking a column heading.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableSort {
+    pub column: SortColumn,
+    pub ascending: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SortColumn {
+    Title,
+    Album,
+    Added,
+    Duration,
+    AddedBy,
 }
 
 /// One of the things a track row can be part of, for playback context and
@@ -476,6 +509,8 @@ pub enum Action {
     RefreshDevices,
     RefreshQueue,
     CopyLink(String),
+    /// A web page, in the browser.
+    OpenUrl(String),
     OpenInSpotify(String),
     Search(String),
     SetSearchFilter(SearchFilter),
@@ -491,7 +526,10 @@ pub enum Action {
     SignIn,
     CancelSignIn,
     SignOut,
+    /// Sign in again with the Web API application named in Settings.
+    SwitchWebApp,
     ToggleQueuePanel,
+    ToggleLyricsPanel,
     ToggleDevicesPopup,
     SettingsChanged,
     RestartEngine,

@@ -96,8 +96,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Web API application (advanced)",
-            "Blank uses the shared public app. Set your own Spotify app's Client ID to raise rate limits; add http://127.0.0.1:8989/login as a redirect URI, then sign out and back in.",
+            "Make it even faster",
+            "Spotify limits each app, and everyone shares this one. An app of your own has its own limit, but opens only playlists you own. Paste its Client ID here.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)
@@ -106,7 +106,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .show(ui, |ui| {
                         ui.add(
                             egui::TextEdit::singleline(&mut client_id)
-                                .hint_text(egui::RichText::new("shared app").color(palette.dim))
+                                .hint_text(egui::RichText::new("Client ID").color(palette.dim))
                                 .font(theme::regular(13.0))
                                 .frame(egui::Frame::NONE)
                                 .desired_width(200.0),
@@ -120,6 +120,60 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Don't have one?",
+            "It's free and takes five minutes in Spotify's developer dashboard.",
+            |ui| {
+                if theme::pill_button(ui, &palette, "Show me how", false).clicked() {
+                    app.actions.push(Action::OpenUrl(
+                        "https://fastpotify.rocks/make-it-even-faster/".into(),
+                    ));
+                }
+            },
+        );
+        // Whether the app named above is the one signed in with. Switching
+        // means one more trip through the browser, so it is a button, not a
+        // side effect of typing.
+        let wanted = app
+            .settings
+            .web_client_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .unwrap_or(crate::auth::DEFAULT_WEB_CLIENT_ID)
+            .to_string();
+        let own = wanted != crate::auth::DEFAULT_WEB_CLIENT_ID;
+        let in_use = app.web_app.as_deref() == Some(wanted.as_str());
+        if in_use && own {
+            widgets::setting_row(
+                ui,
+                &palette,
+                "Your app is in use",
+                "Requests go through your own limit.",
+                |ui| {
+                    theme::text(ui, "In use", theme::medium(13.0), palette.accent);
+                },
+            );
+        } else if !in_use && app.web_app.is_some() {
+            let (title, detail) = if own {
+                (
+                    "Ready to switch to your app",
+                    "Snoop signs in again with it; your browser opens once.",
+                )
+            } else {
+                (
+                    "Back to the shared app?",
+                    "Snoop signs in again with it; your browser opens once.",
+                )
+            };
+            widgets::setting_row(ui, &palette, title, detail, |ui| {
+                if theme::pill_button(ui, &palette, "Switch now", true).clicked() {
+                    app.actions.push(Action::SwitchWebApp);
+                }
+            });
+        }
     });
 
     section(ui, &palette, "Playback on this computer", |ui| {
@@ -264,6 +318,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 },
             );
         }
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Tell me when a new version is out",
+            "Asks GitHub once a day. Nothing about you is sent.",
+            |ui| {
+                if widgets::switch(ui, &palette, &mut app.settings.check_for_updates).changed() {
+                    changed = true;
+                }
+            },
+        );
         if cfg!(target_os = "linux") {
             widgets::setting_row(
                 ui,

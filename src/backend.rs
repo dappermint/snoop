@@ -48,10 +48,15 @@ pub enum RemoteAction {
 pub enum ApiRequest {
     Me,
     Devices,
-    PlaybackState,
+    PlaybackState {
+        seq: u64,
+    },
     Queue,
     RecentlyPlayed,
-    TopTracks,
+    TopTracks {
+        offset: u32,
+        full: bool,
+    },
     TopArtists,
     Recommendations {
         seed_tracks: Vec<String>,
@@ -67,6 +72,12 @@ pub enum ApiRequest {
         id: String,
     },
     PlaylistItems {
+        id: String,
+        offset: u32,
+    },
+    /// A slice of a playlist read only for who added its songs; the rows
+    /// on screen stay untouched.
+    PlaylistSample {
         id: String,
         offset: u32,
     },
@@ -174,6 +185,12 @@ pub enum ApiRequest {
         device_id: String,
         play: bool,
     },
+    /// Shuffle on, then start the context, one after the other: sent as two
+    /// independent requests they race, and shuffle sometimes lost.
+    ShufflePlay {
+        device_id: Option<String>,
+        play: PlayRequest,
+    },
     AddToQueue {
         uri: String,
         device_id: Option<String>,
@@ -185,10 +202,17 @@ pub enum ApiRequest {
 pub enum ApiResponse {
     Me(ApiResult<User>),
     Devices(ApiResult<Vec<Device>>),
-    PlaybackState(ApiResult<Option<PlaybackState>>),
+    PlaybackState {
+        seq: u64,
+        result: ApiResult<Option<PlaybackState>>,
+    },
     Queue(ApiResult<Queue>),
     RecentlyPlayed(ApiResult<Vec<PlayHistory>>),
-    TopTracks(ApiResult<Vec<Track>>),
+    TopTracks {
+        offset: u32,
+        full: bool,
+        result: ApiResult<Page<Track>>,
+    },
     TopArtists(ApiResult<Vec<Artist>>),
     Recommendations(ApiResult<Vec<Track>>),
     Discover {
@@ -206,6 +230,10 @@ pub enum ApiResponse {
     PlaylistItems {
         id: String,
         offset: u32,
+        result: ApiResult<Page<PlaylistItem>>,
+    },
+    PlaylistSample {
+        id: String,
         result: ApiResult<Page<PlaylistItem>>,
     },
     PlaylistCreated(ApiResult<Playlist>),
@@ -350,6 +378,31 @@ pub enum Command {
     DiscoverReceivers,
     /// Hand the account to a receiver so it joins Spotify Connect.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
+    /// Ask GitHub whether a newer release exists.
+    CheckForUpdates,
+    /// The words of a track, from LRCLIB.
+    Lyrics(Box<LyricsRequest>),
+    /// Sign in again with another Web API application (`None` for the
+    /// shared one). Local playback keeps its own grant.
+    SwitchWebApp(Option<String>),
+    /// Read a playlist's cached items from disk.
+    LoadPlaylistCache {
+        id: String,
+    },
+    /// Remember a fully loaded playlist on disk under its snapshot.
+    StorePlaylistCache {
+        id: String,
+        snapshot: String,
+        items: Vec<PlaylistItem>,
+    },
+    /// Resolve user ids to display names through the streaming session.
+    UserNames(Vec<String>),
+}
+
+pub struct LyricsRequest {
+    /// The track the answer is for, so a stale one is ignored.
+    pub uri: String,
+    pub query: crate::lyrics::Query,
 }
 
 pub enum Event {
@@ -368,6 +421,31 @@ pub enum Event {
         color: [u8; 3],
     },
     Error(String),
+    /// A newer release than this build exists.
+    UpdateAvailable {
+        version: String,
+        url: String,
+    },
+    /// The words of a track, or `None` when nobody has transcribed it.
+    Lyrics {
+        uri: String,
+        result: Result<Option<crate::lyrics::Lyrics>, String>,
+    },
+    /// A playlist's items as last cached, with the snapshot they belong to.
+    PlaylistCache {
+        id: String,
+        snapshot: String,
+        items: Vec<PlaylistItem>,
+    },
+    /// A user id resolved to a display name (`None` when nothing answers).
+    UserName {
+        id: String,
+        name: Option<String>,
+    },
+    /// The Web API application the current sign-in belongs to.
+    WebApp {
+        client_id: String,
+    },
 }
 
 /// The state of playback on this computer, independent of Web API sign-in.
@@ -621,6 +699,16 @@ impl Worker {
                 Command::Reconnect => self.reconnect_engine(),
                 Command::DiscoverReceivers => self.discover_receivers(),
                 Command::ActivateReceiver(receiver) => self.activate_receiver(*receiver),
+                Command::CheckForUpdates => self.check_for_updates(),
+                Command::Lyrics(request) => self.fetch_lyrics(*request),
+                Command::LoadPlaylistCache { id } => self.load_playlist_cache(id),
+                Command::StorePlaylistCache {
+                    id,
+                    snapshot,
+                    items,
+                } => self.store_playlist_cache(id, snapshot, items),
+                Command::UserNames(ids) => self.fetch_user_names(ids),
+                Command::SwitchWebApp(client_id) => self.switch_web_app(client_id),
             }
         }
         if let Some(engine) = self.engine.take() {
@@ -655,6 +743,9 @@ impl Worker {
     }
 
     fn activate_web_token(&self, token: crate::auth::StoredToken) {
+        self.emit(Event::WebApp {
+            client_id: token.client_id.clone(),
+        });
         let tokens = WebTokens::new(self.http.clone(), token, self.dirs.web_token_file());
         self.api
             .set_token_provider(Some(TokenProvider::Web(tokens)));
@@ -715,6 +806,21 @@ impl Worker {
                 }
             }
         });
+    }
+
+    /// Signs in again with another Web API application, without a restart.
+    /// Only the Web API grant changes hands: the browser opens once for the
+    /// new application, and local playback keeps its own credential.
+    fn switch_web_app(&mut self, client_id: Option<String>) {
+        if let Some(cancel) = self.cancel_signin.take() {
+            let _ = cancel.send(true);
+        }
+        self.web_client_id = client_id;
+        self.api.set_token_provider(None);
+        crate::auth::StoredToken::remove(&self.dirs.web_token_file());
+        self.signed_in = false;
+        self.emit(Event::Auth(AuthStatus::SignedOut));
+        self.sign_in();
     }
 
     fn sign_out(&mut self) {
@@ -992,6 +1098,101 @@ impl Worker {
         });
     }
 
+    fn check_for_updates(&self) {
+        let http = self.http.clone();
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::spawn(async move {
+            match crate::updates::newer_release(&http).await {
+                Ok(Some(release)) => {
+                    let _ = events.send(Event::UpdateAvailable {
+                        version: release.version,
+                        url: release.url,
+                    });
+                    waker.wake();
+                }
+                Ok(None) => log::debug!("this is the newest release"),
+                Err(error) => log::debug!("could not check for a newer release: {error:#}"),
+            }
+        });
+    }
+
+    fn fetch_lyrics(&self, request: LyricsRequest) {
+        let http = self.http.clone();
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let cache_dir = self.dirs.lyrics_cache_dir();
+        let engine = self.engine.clone();
+        tokio::spawn(async move {
+            // Spotify's own words go first: they follow the recording
+            // exactly. Everything else, a signed-out session included,
+            // falls back to LRCLIB.
+            let result = match spotify_lyrics(engine, &request.uri, &cache_dir).await {
+                Some(found) => Ok(Some(found)),
+                None => crate::lyrics::fetch(&http, &cache_dir, &request.query)
+                    .await
+                    .map_err(|error| format!("{error:#}")),
+            };
+            let _ = events.send(Event::Lyrics {
+                uri: request.uri,
+                result,
+            });
+            waker.wake();
+        });
+    }
+
+    /// Hand the interface a playlist's cached items, if any are on disk.
+    /// Whether they are still true is the interface's call: it compares
+    /// the snapshot against the live playlist before adopting them.
+    fn load_playlist_cache(&self, id: String) {
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        let path = self.dirs.playlist_cache_dir().join(format!("{id}.json"));
+        tokio::spawn(async move {
+            let Ok(text) = tokio::fs::read_to_string(&path).await else {
+                return;
+            };
+            let Ok(cached) = serde_json::from_str::<CachedPlaylist>(&text) else {
+                return;
+            };
+            let _ = events.send(Event::PlaylistCache {
+                id,
+                snapshot: cached.snapshot,
+                items: cached.items,
+            });
+            waker.wake();
+        });
+    }
+
+    fn store_playlist_cache(&self, id: String, snapshot: String, items: Vec<PlaylistItem>) {
+        let path = self.dirs.playlist_cache_dir().join(format!("{id}.json"));
+        tokio::spawn(async move {
+            if let Some(parent) = path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
+            }
+            if let Ok(text) = serde_json::to_string(&CachedPlaylist { snapshot, items }) {
+                let _ = tokio::fs::write(&path, text).await;
+            }
+        });
+    }
+
+    /// Ask Spotify who is behind each user id. Only the streaming session
+    /// can ask; without one the interface shows the bare ids.
+    fn fetch_user_names(&self, ids: Vec<String>) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::spawn(async move {
+            for id in ids {
+                let name = engine.user_display_name(&id).await;
+                let _ = events.send(Event::UserName { id, name });
+                waker.wake();
+            }
+        });
+    }
+
     // ---- api ----------------------------------------------------------------
 
     fn dispatch(&self, request: ApiRequest) {
@@ -1051,16 +1252,21 @@ async fn handle(api: &ApiClient, request: ApiRequest) -> ApiResponse {
     match request {
         ApiRequest::Me => ApiResponse::Me(api.me().await),
         ApiRequest::Devices => ApiResponse::Devices(api.devices().await),
-        ApiRequest::PlaybackState => ApiResponse::PlaybackState(api.playback_state().await),
+        ApiRequest::PlaybackState { seq } => ApiResponse::PlaybackState {
+            seq,
+            result: api.playback_state().await,
+        },
         ApiRequest::Queue => ApiResponse::Queue(api.queue().await),
         ApiRequest::RecentlyPlayed => {
             ApiResponse::RecentlyPlayed(api.recently_played(50).await.map(|page| page.items))
         }
-        ApiRequest::TopTracks => ApiResponse::TopTracks(
-            api.top_tracks("short_term", 20)
-                .await
-                .map(|page| page.items),
-        ),
+        ApiRequest::TopTracks { offset, full } => ApiResponse::TopTracks {
+            result: api
+                .top_tracks("short_term", if full { 50 } else { 20 }, offset)
+                .await,
+            offset,
+            full,
+        },
         ApiRequest::TopArtists => ApiResponse::TopArtists(
             api.top_artists("medium_term", 20)
                 .await
@@ -1091,6 +1297,10 @@ async fn handle(api: &ApiClient, request: ApiRequest) -> ApiResponse {
             result: api.playlist_items(&id, offset, 100).await,
             id,
             offset,
+        },
+        ApiRequest::PlaylistSample { id, offset } => ApiResponse::PlaylistSample {
+            result: api.playlist_items(&id, offset, 100).await,
+            id,
         },
         ApiRequest::CreatePlaylist {
             user_id,
@@ -1263,6 +1473,17 @@ async fn handle(api: &ApiClient, request: ApiRequest) -> ApiResponse {
             };
             ApiResponse::Remote { action, result }
         }
+        ApiRequest::ShufflePlay { device_id, play } => {
+            let device = device_id.as_deref();
+            let result = match api.set_shuffle(true, device).await {
+                Ok(()) => api.play(device, Some(&play)).await,
+                Err(error) => Err(error),
+            };
+            ApiResponse::Remote {
+                action: RemoteAction::Play,
+                result,
+            }
+        }
         ApiRequest::Transfer { device_id, play } => ApiResponse::Transferred {
             result: api.transfer(&device_id, play).await,
             device_id,
@@ -1276,4 +1497,37 @@ async fn handle(api: &ApiClient, request: ApiRequest) -> ApiResponse {
             label,
         },
     }
+}
+
+/// Spotify's transcription of the track, when the local session can ask for
+/// one. Answers are cached like LRCLIB's, "none" included; `None` falls
+/// back to LRCLIB.
+async fn spotify_lyrics(
+    engine: Option<Arc<Engine>>,
+    uri: &str,
+    cache_dir: &std::path::Path,
+) -> Option<crate::lyrics::Lyrics> {
+    let id = uri.strip_prefix("spotify:track:")?;
+    let path = cache_dir.join(format!("spotify-{id}.json"));
+    if let Some(cached) = crate::lyrics::cached(&path) {
+        return cached;
+    }
+    match engine?.lyrics_json(uri).await {
+        Ok(json) => {
+            let found = json.as_ref().and_then(crate::lyrics::from_spotify);
+            crate::lyrics::store(&path, &found);
+            found
+        }
+        Err(error) => {
+            log::debug!("spotify lyrics unavailable: {error:#}");
+            None
+        }
+    }
+}
+
+/// A playlist's items on disk, valid for exactly one snapshot.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CachedPlaylist {
+    snapshot: String,
+    items: Vec<PlaylistItem>,
 }

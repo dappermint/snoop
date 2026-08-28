@@ -33,6 +33,7 @@ regular spotify runs multiple chromium helper processes for rendering, audio, ne
 - **lan speaker discovery:** finds local librespot / spotifyd instances over mdns and connects them to your account
 - **full library & search:** playlists, liked songs, albums, artists, podcasts, and unified search
 - **queue management:** queue side panel or dedicated full page, reorder and add from any row menu
+- **lyrics panel:** synchronized and unsynchronized lyrics following playback
 - **album art tinting:** surfaces dynamically take a subtle tint from the active album cover
 
 ## install & development
@@ -54,7 +55,7 @@ to build a real `Snoop.app` (macos routes media keys, control centre, and the lo
 
 ```bash
 cargo build --release
-packaging/macos/bundle.sh target/release/snoop Snoop.app 0.1.6
+packaging/macos/bundle.sh target/release/snoop Snoop.app 0.2.0
 ```
 
 the bundle is ad-hoc signed by default. set `CODESIGN_IDENTITY` to a developer id to sign it for distribution.
@@ -71,6 +72,27 @@ to run with sample demo data (no spotify login needed):
 cargo run --features demo -- --demo --demo-page playlist:pl1 --demo-show queue
 ```
 
+## controlling it from outside
+
+on linux, snoop is an mpris player, so `playerctl --player=snoop play-pause` already works.
+
+macos and windows have no such bus, so the same verbs are subcommands. they talk to the instance already running and print nothing on success:
+
+```
+snoop play-pause          snoop volume 40
+snoop play                snoop volume-up [percent]
+snoop pause               snoop volume-down [percent]
+snoop next                snoop mute
+snoop previous            snoop shuffle
+snoop seek 15             snoop repeat
+snoop seek -- -15         snoop show
+snoop now-playing [--raw]
+```
+
+`now-playing` prints one readable line; `--raw` prints the fields tab-separated (state, title, artists, album, position_ms, duration_ms, volume, shuffle, repeat) for scripts. a verb exits non-zero when snoop is not running.
+
+that is enough for a launcher such as raycast or alfred to drive playback through its own script commands.
+
 ## keyboard shortcuts
 
 | shortcut | what it does |
@@ -82,6 +104,7 @@ cargo run --features demo -- --demo --demo-page playlist:pl1 --demo-show queue
 | `M` | mute or unmute |
 | `S` / `R` | shuffle / cycle repeat |
 | `Q` or `⌘U` | toggle queue panel |
+| `L` | toggle lyrics panel |
 | `⌘F` or `/` | search |
 | `⌘[` / `⌘]` or `⌥←` / `⌥→` | back or forward |
 | `⌘Shift+H` / `⌘L` | home / liked songs |

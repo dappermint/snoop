@@ -23,14 +23,16 @@ enum Update {
     Seeked(u32),
 }
 
-pub struct MediaControls {
+pub struct MediaService {
     updates: tokio_mpsc::UnboundedSender<Update>,
     commands: Receiver<MediaCommand>,
     published: Option<MediaState>,
     last_position_update: Instant,
 }
 
-impl MediaControls {
+pub type MediaControls = MediaService;
+
+impl MediaService {
     pub fn spawn(wake: impl Fn() + Send + Sync + 'static) -> Self {
         let (updates, update_rx) = tokio_mpsc::unbounded_channel();
         let (command_tx, commands) = std::sync::mpsc::channel();

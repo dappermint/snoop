@@ -42,23 +42,35 @@ pub fn paint_cover(
     let corner = CornerRadius::same(radius.min(127.0) as u8);
     let painter = ui.painter();
     let loaded = url.is_some_and(|url| {
-        let image = egui::Image::new(url)
-            .fit_to_exact_size(rect.size())
+        let image = egui::Image::new(url).show_loading_spinner(false);
+        let Ok(egui::load::TexturePoll::Ready { texture }) =
+            image.load_for_size(ui.ctx(), rect.size())
+        else {
+            return false;
+        };
+
+        let image_aspect = texture.size.x / texture.size.y;
+        let rect_aspect = rect.width() / rect.height();
+        let uv = if image_aspect > rect_aspect {
+            let visible_width = rect_aspect / image_aspect;
+            let inset = (1.0 - visible_width) / 2.0;
+            Rect::from_min_max(pos2(inset, 0.0), pos2(1.0 - inset, 1.0))
+        } else {
+            let visible_height = image_aspect / rect_aspect;
+            let inset = (1.0 - visible_height) / 2.0;
+            Rect::from_min_max(pos2(0.0, inset), pos2(1.0, 1.0 - inset))
+        };
+        egui::Image::new(texture)
+            .uv(uv)
             .corner_radius(corner)
-            .show_loading_spinner(false);
-        matches!(
-            image.load_for_size(ui.ctx(), rect.size()),
-            Ok(egui::load::TexturePoll::Ready { .. })
-        ) && {
-            image.paint_at(ui, rect);
-            painter.rect_stroke(
-                rect,
-                corner,
-                Stroke::new(1.0, egui::Color32::from_white_alpha(20)),
-                egui::StrokeKind::Inside,
-            );
-            true
-        }
+            .paint_at(ui, rect);
+        painter.rect_stroke(
+            rect,
+            corner,
+            Stroke::new(1.0, egui::Color32::from_white_alpha(20)),
+            egui::StrokeKind::Inside,
+        );
+        true
     });
     if !loaded {
         let fill = if palette.dark {
@@ -157,9 +169,9 @@ pub fn menu_item_enabled(
     label: &str,
     enabled: bool,
 ) -> bool {
-    let width = ui.available_width().max(220.0);
+    let width = ui.available_width().max(200.0);
     let (rect, response) = ui.allocate_exact_size(
-        vec2(width, 32.0),
+        vec2(width, 28.0),
         if enabled {
             Sense::click()
         } else {
@@ -187,9 +199,20 @@ pub fn menu_item_enabled(
             .paint_at(ui, icon_rect);
             x += 26.0;
         }
-        let galley = ui
-            .painter()
-            .layout_no_wrap(label.to_string(), theme::regular(13.5), color);
+        // A playlist can be named a paragraph; the label ends at the menu's
+        // edge instead of running past it.
+        let mut job = egui::text::LayoutJob::simple_singleline(
+            label.to_string(),
+            theme::regular(13.5),
+            color,
+        );
+        job.wrap = egui::text::TextWrapping {
+            max_width: (rect.right() - 10.0 - x).max(0.0),
+            max_rows: 1,
+            break_anywhere: true,
+            overflow_character: Some('\u{2026}'),
+        };
+        let galley = ui.painter().layout_job(job);
         ui.painter().galley(
             pos2(x, rect.center().y - galley.size().y / 2.0),
             galley,
@@ -239,7 +262,8 @@ pub fn item_menu(
     index: Option<usize>,
 ) {
     let palette = app.palette;
-    ui.set_min_width(240.0);
+    ui.set_min_width(220.0);
+    ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
     if menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
@@ -261,6 +285,7 @@ pub fn item_menu(
         let playlists = app.editable_playlists();
         ui.menu_button("Add to playlist", |ui| {
             ui.set_min_width(220.0);
+            ui.set_max_width(300.0);
             if menu_item(ui, &palette, Some(Icon::Plus), "New playlist") {
                 app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
                     name: String::new(),
@@ -376,7 +401,8 @@ pub fn context_menu_items(
     owned_playlist: Option<&Playlist>,
 ) {
     let palette = app.palette;
-    ui.set_min_width(220.0);
+    ui.set_min_width(200.0);
+    ui.set_max_width(300.0);
     let kind = util::uri_kind(uri).unwrap_or("");
     if menu_item(ui, &palette, Some(Icon::Play), "Play") {
         app.actions.push(Action::PlayContext {
@@ -444,6 +470,9 @@ pub struct TrackRow<'a> {
     pub show_cover: bool,
     pub show_album: bool,
     pub added_at: Option<&'a str>,
+    /// Who put the song here, on playlists made together.
+    pub added_by: Option<&'a str>,
+    pub show_added_by: bool,
     pub compact: bool,
 }
 
@@ -452,6 +481,7 @@ struct Columns {
     number: f32,
     cover: f32,
     album: f32,
+    added_by: f32,
     added: f32,
     heart: f32,
     duration: f32,
@@ -459,6 +489,7 @@ struct Columns {
 }
 
 fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
+    let extra_wide = width > 920.0;
     let wide = width > 760.0;
     let medium = width > 560.0;
     Columns {
@@ -466,6 +497,11 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
         cover: if row.show_cover { 52.0 } else { 0.0 },
         album: if row.show_album && medium {
             (width * 0.28).clamp(140.0, 360.0)
+        } else {
+            0.0
+        },
+        added_by: if row.show_added_by && extra_wide {
+            130.0
         } else {
             0.0
         },
@@ -598,7 +634,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
         x += cols.cover;
     }
     let right_fixed = cols.heart + cols.duration + cols.more + 8.0;
-    let text_right = rect.right() - right_fixed - cols.added - cols.album;
+    let text_right = rect.right() - right_fixed - cols.added - cols.added_by - cols.album;
     let title_rect =
         Rect::from_min_max(pos2(x, rect.top()), pos2(text_right - 12.0, rect.bottom()));
 
@@ -690,6 +726,24 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
             }
         }
         x += cols.album;
+    }
+    // Added by.
+    if cols.added_by > 0.0 {
+        if let Some(adder) = row.added_by {
+            let cell = Rect::from_min_max(
+                pos2(x, rect.top()),
+                pos2(x + cols.added_by - 12.0, rect.bottom()),
+            );
+            let clipped = painter.with_clip_rect(cell.intersect(ui.clip_rect()));
+            clipped.text(
+                pos2(cell.left(), cell.center().y),
+                egui::Align2::LEFT_CENTER,
+                adder,
+                theme::regular(13.0),
+                palette.secondary,
+            );
+        }
+        x += cols.added_by;
     }
     // Date added.
     if cols.added > 0.0 {
@@ -811,20 +865,71 @@ pub fn explicit_badge(ui: &mut Ui, palette: &Palette) {
 }
 
 /// The header row above a track table.
+/// The column headings above a track table. Answers with the heading that
+/// was clicked, so the table can sort by it.
+#[expect(clippy::fn_params_excessive_bools)]
 pub fn table_header(
     ui: &mut Ui,
     palette: &Palette,
     show_album: bool,
     show_added: bool,
+    show_added_by: bool,
     show_cover: bool,
-) {
+    sort: Option<crate::model::TableSort>,
+) -> Option<crate::model::SortColumn> {
+    use crate::model::SortColumn;
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(vec2(width, 34.0), Sense::hover());
-    let painter = ui.painter();
     let font = theme::regular(12.0);
     let color = palette.secondary;
+    let mut clicked = None;
+    let mut heading = |ui: &mut Ui, x: f32, text: &str, column: SortColumn| {
+        let active = sort.filter(|sort| sort.column == column);
+        let galley =
+            ui.painter()
+                .layout_no_wrap(text.to_string(), font.clone(), egui::Color32::PLACEHOLDER);
+        let size = galley.size();
+        let arrow_room = if active.is_some() { 13.0 } else { 0.0 };
+        let top_left = pos2(x, rect.center().y - size.y / 2.0);
+        let head =
+            Rect::from_min_size(top_left, size + vec2(arrow_room, 0.0)).expand2(vec2(4.0, 8.0));
+        let response = ui.interact(head, ui.id().with(("table-header", text)), Sense::click());
+        let color = if active.is_some() {
+            palette.accent
+        } else if response.hovered() {
+            palette.text
+        } else {
+            color
+        };
+        ui.painter().galley(top_left, galley, color);
+        if let Some(sort) = active {
+            // Drawn, not typed: an arrow glyph relies on the loaded fonts
+            // and rendered as a hollow box on some machines.
+            let center = pos2(top_left.x + size.x + 8.0, rect.center().y);
+            let (wing, tip) = if sort.ascending {
+                (2.8, -3.2)
+            } else {
+                (-2.8, 3.2)
+            };
+            ui.painter().add(egui::Shape::convex_polygon(
+                vec![
+                    center + vec2(-4.0, wing),
+                    center + vec2(4.0, wing),
+                    center + vec2(0.0, tip),
+                ],
+                color,
+                egui::Stroke::NONE,
+            ));
+        }
+        if response
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+        {
+            clicked = Some(column);
+        }
+    };
     let mut x = rect.left() + 8.0;
-    painter.text(
+    ui.painter().text(
         pos2(x + 22.0, rect.center().y),
         egui::Align2::CENTER_CENTER,
         "#",
@@ -835,13 +940,7 @@ pub fn table_header(
     if show_cover {
         x += 52.0;
     }
-    painter.text(
-        pos2(x, rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        "TITLE",
-        font.clone(),
-        color,
-    );
+    heading(ui, x, "TITLE", SortColumn::Title);
     let medium = width > 560.0;
     let wide = width > 760.0;
     let album_width = if show_album && medium {
@@ -850,38 +949,57 @@ pub fn table_header(
         0.0
     };
     let added_width = if show_added && wide { 120.0 } else { 0.0 };
+    let extra_wide = width > 920.0;
+    let added_by_width = if show_added_by && extra_wide {
+        130.0
+    } else {
+        0.0
+    };
     let right_fixed = 36.0 + 56.0 + 36.0 + 8.0;
-    let mut cx = rect.right() - right_fixed - added_width - album_width;
+    let mut cx = rect.right() - right_fixed - added_width - added_by_width - album_width;
     if album_width > 0.0 {
-        painter.text(
-            pos2(cx, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            "ALBUM",
-            font.clone(),
-            color,
-        );
+        heading(ui, cx, "ALBUM", SortColumn::Album);
         cx += album_width;
     }
+    if added_by_width > 0.0 {
+        heading(ui, cx, "ADDED BY", SortColumn::AddedBy);
+        cx += added_by_width;
+    }
     if added_width > 0.0 {
-        painter.text(
-            pos2(cx, rect.center().y),
-            egui::Align2::LEFT_CENTER,
-            "DATE ADDED",
-            font.clone(),
-            color,
-        );
+        heading(ui, cx, "DATE ADDED", SortColumn::Added);
     }
     let clock = Rect::from_center_size(
         pos2(rect.right() - 36.0 - 56.0 / 2.0 - 6.0, rect.center().y),
         Vec2::splat(15.0),
     );
-    Icon::Clock.image(color, 15.0).paint_at(ui, clock);
+    let duration_active = sort.is_some_and(|sort| sort.column == SortColumn::Duration);
+    let response = ui.interact(
+        clock.expand(8.0),
+        ui.id().with("table-header-duration"),
+        Sense::click(),
+    );
+    let clock_color = if duration_active {
+        palette.accent
+    } else if response.hovered() {
+        palette.text
+    } else {
+        color
+    };
+    Icon::Clock.image(clock_color, 15.0).paint_at(ui, clock);
+    if response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text("Sort by duration")
+        .clicked()
+    {
+        clicked = Some(SortColumn::Duration);
+    }
     ui.painter().hline(
         rect.x_range().shrink(8.0),
         rect.bottom() - 0.5,
         Stroke::new(1.0, palette.outline),
     );
     ui.add_space(6.0);
+    clicked
 }
 
 /// Lays out text limited to `max_rows` lines, ending with an ellipsis.

@@ -8,6 +8,7 @@ pub mod home;
 mod keys;
 pub mod library;
 pub mod login;
+mod lyrics;
 pub mod player_bar;
 pub mod queue;
 pub mod search;
@@ -41,6 +42,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     sidebar::show(app, ui);
     if app.show_queue_panel {
         queue::side_panel(app, ui);
+    }
+    if app.show_lyrics_panel {
+        lyrics::side_panel(app, ui);
     }
     central(app, ui);
     devices::popup(app, ctx);
@@ -125,6 +129,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                             ui.set_min_width(ui.available_width());
                             match page {
                                 Page::Home => home::show(app, ui),
+                                Page::TopSongs => collection::top_songs(app, ui),
                                 Page::Search => search::show(app, ui),
                                 Page::LikedSongs => collection::liked(app, ui),
                                 Page::Albums | Page::Artists | Page::Podcasts | Page::Episodes => {

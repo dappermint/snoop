@@ -24,7 +24,8 @@ sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
 
 iconset="$(mktemp -d)/snoop.iconset"
 mkdir -p "$iconset"
-# iconutil only accepts these base sizes, each with an optional @2x.
+# iconutil reads only these base sizes, each with an optional @2x. It ignores
+# an icon_64x64 without saying so, so generating one is two wasted sips calls.
 for size in 16 32 128 256 512; do
     sips -z $size $size "$here/icon-1024.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
     double=$((size * 2))
@@ -32,6 +33,7 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/snoop.icns"
 
+# arm64 refuses to launch an unsigned bundle, so sign one way or another.
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
     codesign --force --timestamp --options runtime \
         --sign "$CODESIGN_IDENTITY" "$app"

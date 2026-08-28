@@ -20,12 +20,14 @@ use librespot_core::{
     authentication::Credentials,
     cache::Cache,
     config::{DeviceType, SessionConfig},
+    error::ErrorKind,
     session::Session,
+    spotify_id::SpotifyId,
 };
 use librespot_metadata::audio::{AudioItem, UniqueFields};
 use librespot_playback::{
     audio_backend::{self, Sink},
-    config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig},
+    config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
     mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
     player::{Player, PlayerEvent},
 };
@@ -223,6 +225,7 @@ pub type Notify = Arc<dyn Fn(EngineEvent) + Send + Sync>;
 pub struct Engine {
     player: Arc<Player>,
     spirc: Arc<Spirc>,
+    session: Session,
     mixer: Arc<dyn Mixer>,
     device_id: String,
     shutting_down: Arc<std::sync::atomic::AtomicBool>,
@@ -254,7 +257,15 @@ impl Engine {
 
         let mixer_builder =
             mixer::find(Some("softvol")).ok_or_else(|| anyhow!("soft volume mixer missing"))?;
-        let mixer = mixer_builder(MixerConfig::default()).context("unable to create the mixer")?;
+        // librespot's default curve spans 60 dB logarithmically, which puts
+        // half the slider below -30 dB and every level anyone wants in its
+        // top quarter. The cubic curve reaches -16 dB at the middle and -7 dB
+        // at three quarters, spreading the useful range across the slider.
+        let mixer = mixer_builder(MixerConfig {
+            volume_ctrl: VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE),
+            ..MixerConfig::default()
+        })
+        .context("unable to create the mixer")?;
 
         let state = Arc::new(Mutex::new(LocalState {
             volume: config.initial_volume,
@@ -313,6 +324,7 @@ impl Engine {
         Ok(Self {
             player,
             spirc: Arc::new(spirc),
+            session,
             mixer,
             device_id,
             shutting_down,
@@ -321,6 +333,38 @@ impl Engine {
 
     pub fn device_id(&self) -> &str {
         &self.device_id
+    }
+
+    /// Spotify's own transcription of a track, as the raw JSON its clients
+    /// read; `Ok(None)` when Spotify has none, an error when asking failed.
+    pub async fn lyrics_json(&self, track_uri: &str) -> Result<Option<serde_json::Value>> {
+        let Some(id) = track_uri
+            .rsplit(':')
+            .next()
+            .and_then(|id| SpotifyId::from_base62(id).ok())
+        else {
+            return Ok(None);
+        };
+        match self.session.spclient().get_lyrics(&id).await {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
+            Err(error) if error.kind == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(anyhow!("spotify lyrics: {error}")),
+        }
+    }
+
+    /// The display name behind a user id, from the profile view Spotify's
+    /// clients read; `None` when nothing answers.
+    pub async fn user_display_name(&self, user_id: &str) -> Option<String> {
+        let bytes = self
+            .session
+            .spclient()
+            .get_user_profile(user_id, Some(0), Some(0))
+            .await
+            .ok()?;
+        let json: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        json.get("name")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
     }
 
     pub fn shutdown(&self) {

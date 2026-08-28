@@ -15,7 +15,19 @@ The player bar at the bottom always shows what is playing, on this
 computer *or* on any other device. Click the title to open its album, the
 artist to open the artist, the heart to save it.
 
+## Home
+
+Home previews your most-played songs. Select **Your top songs** or **Show
+more top songs** to open the complete ranked list.
+
+Track tables sort by their column headings: click **Title**, **Album**,
+**Date added**, or the clock to sort by it, again to reverse, and a third
+time to return to the list's own order.
+
 ## Your Library
+
+The sidebar keeps the playlists you played most recently on top,
+wherever you played them, and remembers that order between runs.
 
 The sidebar is your library: filter it by Playlists, Albums, Artists, or
 Podcasts with the chips, or search it with the magnifier. Liked Songs is
@@ -61,6 +73,21 @@ and from then on it is an ordinary device to every Spotify client you own.
 This uses the credential stored for playing on this computer, so enable
 playback here first (see [Getting Started](/getting-started/)). Receivers
 that ask for a different kind of login are not connected this way yet.
+
+## Lyrics
+
+The microphone button in the player bar (or `L`) opens the words of the
+playing track beside the page. When the lyrics are timed, the line being
+sung is highlighted and the panel follows along; click any line to jump the
+song there. Scrolling by hand stops the following, and **Follow** in the
+panel's header picks the song back up. When this computer is signed in
+for playback, the words come from Spotify itself. Otherwise, and for
+tracks Spotify has no words for, they come from
+[LRCLIB](https://lrclib.net), an open database that needs no account, so
+they work for whatever is playing, on this computer or another device;
+podcasts and tracks nobody has transcribed say so.
+
+![The lyrics panel beside a playlist, following the song](/assets/images/lyrics.png)
 
 ## The tray
 

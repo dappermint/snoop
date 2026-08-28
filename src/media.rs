@@ -1,7 +1,8 @@
 //! What the desktop's own media controls say and hear.
 //!
-//! MPRIS on Linux and Now Playing on macOS answer the same questions, so the
-//! interface speaks this vocabulary and each platform module translates it.
+//! MPRIS on Linux, the System Media Transport Controls on Windows and Now
+//! Playing on macOS answer the same questions, so the interface speaks this
+//! vocabulary and each platform module translates it.
 
 use crate::player::{Playback, RepeatMode};
 
