@@ -1,4 +1,4 @@
-//! Where Fastpotify keeps its files.
+//! Where Snoop keeps its files.
 //!
 //! Configuration, durable state (Spotify credentials), and disposable caches
 //! (audio, artwork) live in the platform's conventional directories, so

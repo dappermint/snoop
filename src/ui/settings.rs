@@ -251,7 +251,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Keep music playing when the window closes",
-            "Fastpotify hides to the system tray. Quit from the tray menu or with Ctrl+Q.",
+            if cfg!(target_os = "macos") {
+                "Snoop hides to the menu bar. Quit from the menu or with ⌘Q."
+            } else {
+                "Snoop hides to the system tray. Quit from the tray menu or with Ctrl+Q."
+            },
             |ui| {
                 if widgets::switch(ui, &palette, &mut app.settings.keep_playing_in_background)
                     .changed()
@@ -427,7 +431,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.vertical(|ui| {
                 theme::text(
                     ui,
-                    format!("Fastpotify {}", env!("CARGO_PKG_VERSION")),
+                    format!("Snoop {}", env!("CARGO_PKG_VERSION")),
                     theme::semibold(15.0),
                     palette.text,
                 );

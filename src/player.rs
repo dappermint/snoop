@@ -612,7 +612,7 @@ mod tests {
     #[test]
     fn device_id_is_stable_hex() {
         let config = EngineConfig {
-            device_name: "Fastpotify".into(),
+            device_name: "Snoop".into(),
             bitrate_kbps: 320,
             normalisation: false,
             autoplay: true,

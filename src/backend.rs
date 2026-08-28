@@ -425,12 +425,12 @@ impl Backend {
         let (event_tx, event_rx) = std::sync::mpsc::channel();
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .thread_name("fastpotify-runtime")
+            .thread_name("snoop-runtime")
             .enable_all()
             .build()
             .expect("unable to start the async runtime");
         let http = reqwest::Client::builder()
-            .user_agent(concat!("fastpotify/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("snoop/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(30))
             .build()
             .expect("unable to build the HTTP client");
@@ -925,7 +925,7 @@ impl Worker {
                     .map_err(|error| error.to_string())?;
                 let info = crate::zeroconf::get_info(&http, &receiver)
                     .map_err(|error| error.to_string())?;
-                crate::zeroconf::add_user(&http, &receiver, &info, &credentials, "Fastpotify")
+                crate::zeroconf::add_user(&http, &receiver, &info, &credentials, "Snoop")
                     .map_err(|error| error.to_string())
             })();
             let _ = events.send(Event::ReceiverActivated { name, result });

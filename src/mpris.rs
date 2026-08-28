@@ -1,4 +1,4 @@
-//! Linux desktop media controls (MPRIS) for Fastpotify.
+//! Linux desktop media controls (MPRIS) for Snoop.
 //!
 //! D-Bus runs on its own thread with a local executor and exchanges bounded
 //! messages with the interface, which stays the only owner of playback
@@ -15,7 +15,7 @@ use tokio::sync::mpsc as tokio_mpsc;
 use crate::player::{Playback, RepeatMode};
 
 const PLAYING_POSITION_INTERVAL: Duration = Duration::from_millis(1000);
-const TRACK_OBJECT_PATH_PREFIX: &str = "/me/paolino/Fastpotify/Track/";
+const TRACK_OBJECT_PATH_PREFIX: &str = "/com/dappermint/Snoop/Track/";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum MprisCommand {
@@ -88,7 +88,7 @@ impl MprisService {
         let (command_tx, commands) = std::sync::mpsc::channel();
         let wake: std::sync::Arc<dyn Fn() + Send + Sync> = std::sync::Arc::new(wake);
         let spawned = thread::Builder::new()
-            .name("fastpotify-mpris".to_string())
+            .name("snoop-mpris".to_string())
             .spawn(move || {
                 let runtime = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -162,9 +162,9 @@ async fn run(
     commands: Sender<MprisCommand>,
     wake: std::sync::Arc<dyn Fn() + Send + Sync>,
 ) -> mpris_server::zbus::Result<()> {
-    let player = Player::builder("fastpotify")
-        .identity("Fastpotify")
-        .desktop_entry("fastpotify")
+    let player = Player::builder("snoop")
+        .identity("Snoop")
+        .desktop_entry("snoop")
         .can_raise(true)
         .can_quit(true)
         .can_control(true)

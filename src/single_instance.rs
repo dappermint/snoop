@@ -1,6 +1,6 @@
 //! One running instance at a time.
 //!
-//! Two copies of Fastpotify fight over things a user notices: two Spotify
+//! Two copies of Snoop fight over things a user notices: two Spotify
 //! Connect devices with the same name, two MPRIS players for the media keys
 //! to disagree about, two tray icons. So a second launch does not start a
 //! second app; it asks the one already running to show itself and exits.
@@ -27,11 +27,11 @@
 
 /// The name held for the lifetime of the running instance.
 #[cfg(target_os = "linux")]
-const INSTANCE_NAME: &str = "rocks.fastpotify.Instance";
+const INSTANCE_NAME: &str = "com.dappermint.snoop.Instance";
 
 /// The MPRIS player to ask when another instance already holds the name.
 #[cfg(target_os = "linux")]
-const MPRIS_NAME: &str = "org.mpris.MediaPlayer2.fastpotify";
+const MPRIS_NAME: &str = "org.mpris.MediaPlayer2.snoop";
 
 pub enum Outcome {
     /// This process is the only instance. Hold the guard until it exits.
@@ -64,7 +64,7 @@ impl Guard {
 const INSTANCE_PORT: u16 = 47_113;
 
 /// Sent by a later launch, and answered, so a foreign program that happens to
-/// hold the port is never mistaken for Fastpotify.
+/// hold the port is never mistaken for Snoop.
 #[cfg(not(target_os = "linux"))]
 const SHOW_REQUEST: &[u8] = b"snoop:show\n";
 #[cfg(not(target_os = "linux"))]
@@ -73,16 +73,17 @@ const SHOW_ACK: &[u8] = b"snoop:ok\n";
 #[cfg(not(target_os = "linux"))]
 pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
     use std::io::{Read, Write};
-    use std::net::{Ipv4Addr, TcpListener, TcpStream};
+    use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
-    let listener = match TcpListener::bind((Ipv4Addr::LOCALHOST, INSTANCE_PORT)) {
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, INSTANCE_PORT));
+    let listener = match TcpListener::bind(addr) {
         Ok(listener) => listener,
         Err(_) => {
-            // Someone holds the port. Ask them to show themselves, and only
-            // stand down if they answer as Fastpotify.
+            // Something else holds the port. Probe with our magic byte string;
+            // stand down if they answer as Snoop.
             let answered = TcpStream::connect((Ipv4Addr::LOCALHOST, INSTANCE_PORT))
                 .and_then(|mut stream| {
                     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
@@ -95,7 +96,7 @@ pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
             if answered {
                 return Outcome::Surfaced;
             }
-            log::warn!("port {INSTANCE_PORT} is busy but not with Fastpotify; running unguarded");
+            log::warn!("port {INSTANCE_PORT} is busy but not with Snoop; running unguarded");
             return Outcome::Only(Guard {
                 show_requests: Default::default(),
             });
@@ -106,7 +107,7 @@ pub fn acquire(waker: &crate::backend::Waker) -> Outcome {
     let flag = Arc::clone(&show_requests);
     let waker = waker.clone();
     let spawned = std::thread::Builder::new()
-        .name("fastpotify-instance".to_owned())
+        .name("snoop-instance".to_owned())
         .spawn(move || {
             for stream in listener.incoming().flatten() {
                 let mut stream = stream;
@@ -155,7 +156,7 @@ pub fn acquire(_waker: &crate::backend::Waker) -> Outcome {
         Ok(_) | Err(mpris_server::zbus::Error::NameTaken) => {
             if !raise_running_instance(&connection) {
                 log::warn!(
-                    "Fastpotify is already running but did not answer; not starting a second copy"
+                    "Snoop is already running but did not answer; not starting a second copy"
                 );
             }
             Outcome::Surfaced

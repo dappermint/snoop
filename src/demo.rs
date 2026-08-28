@@ -20,17 +20,17 @@ use crate::model::*;
 fn image(seed: u32) -> Vec<Image> {
     vec![
         Image {
-            url: format!("https://picsum.photos/seed/fastpotify{seed}/640/640"),
+            url: format!("https://picsum.photos/seed/snoop{seed}/640/640"),
             width: Some(640),
             height: Some(640),
         },
         Image {
-            url: format!("https://picsum.photos/seed/fastpotify{seed}/300/300"),
+            url: format!("https://picsum.photos/seed/snoop{seed}/300/300"),
             width: Some(300),
             height: Some(300),
         },
         Image {
-            url: format!("https://picsum.photos/seed/fastpotify{seed}/64/64"),
+            url: format!("https://picsum.photos/seed/snoop{seed}/64/64"),
             width: Some(64),
             height: Some(64),
         },
@@ -460,7 +460,7 @@ pub fn populate(app: &mut App) {
     app.devices = vec![
         Device {
             id: Some("local-demo".into()),
-            name: "Fastpotify".into(),
+            name: "Snoop".into(),
             is_active: false,
             is_restricted: false,
             volume_percent: Some(70),
@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn every_surface_renders_headless() {
         let root =
-            std::env::temp_dir().join(format!("fastpotify-render-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("snoop-render-test-{}", std::process::id()));
         let dirs = AppDirs {
             config: root.join("config"),
             state: root.join("state"),
