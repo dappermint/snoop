@@ -231,6 +231,95 @@ pub fn apply(ctx: &egui::Context, palette: &Palette) {
     ctx.set_global_style(style);
 }
 
+const CJK_FALLBACK: &str = "cjk-fallback";
+
+#[cfg(target_os = "macos")]
+const SYSTEM_CJK_FONTS: &[&str] = &[
+    "/System/Library/Fonts/PingFang.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/System/Library/Fonts/STHeiti Light.ttc",
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/System/Library/Fonts/Supplemental/Songti.ttc",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "/Library/Fonts/Arial Unicode.ttf",
+];
+
+#[cfg(target_os = "windows")]
+const SYSTEM_CJK_FONTS: &[&str] = &[
+    "C:\\Windows\\Fonts\\msyh.ttc",
+    "C:\\Windows\\Fonts\\msyh.ttf",
+    "C:\\Windows\\Fonts\\msyhl.ttc",
+    "C:\\Windows\\Fonts\\simsun.ttc",
+    "C:\\Windows\\Fonts\\simhei.ttf",
+];
+
+#[cfg(target_os = "linux")]
+const SYSTEM_CJK_FONTS: &[&str] = &[
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    "/usr/share/fonts/noto/NotoSansCJK-Regular.ttc",
+];
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+const SYSTEM_CJK_FONTS: &[&str] = &[];
+
+fn load_system_cjk_font() -> Option<Vec<u8>> {
+    if let Ok(custom_path) =
+        std::env::var("SNOOP_FONT").or_else(|_| std::env::var("FASTPOTIFY_FONT"))
+        && let Ok(bytes) = std::fs::read(&custom_path)
+    {
+        log::info!("Loaded custom CJK font from {}", custom_path);
+        return Some(bytes);
+    }
+
+    for &path in SYSTEM_CJK_FONTS {
+        if let Ok(bytes) = std::fs::read(path) {
+            log::info!("Loaded system CJK font from {}", path);
+            return Some(bytes);
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        #[cfg(target_os = "macos")]
+        let user_font_dirs = [format!("{home}/Library/Fonts")];
+        #[cfg(not(target_os = "macos"))]
+        let user_font_dirs = [
+            format!("{home}/.local/share/fonts"),
+            format!("{home}/.fonts"),
+        ];
+
+        for dir in user_font_dirs {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = path.to_string_lossy().to_lowercase();
+                    if (name.contains("cjk")
+                        || name.contains("pingfang")
+                        || name.contains("noto")
+                        || name.contains("yahei")
+                        || name.contains("sourcehan")
+                        || name.contains("sc")
+                        || name.contains("tc"))
+                        && (name.ends_with(".ttf")
+                            || name.ends_with(".ttc")
+                            || name.ends_with(".otf"))
+                        && let Ok(bytes) = std::fs::read(&path)
+                    {
+                        log::info!("Loaded user CJK font from {:?}", path);
+                        return Some(bytes);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn install_fonts(ctx: &egui::Context) {
     use egui::epaint::text::VariationCoords;
     use egui::{FontData, FontDefinitions, FontFamily};
@@ -254,11 +343,33 @@ fn install_fonts(ctx: &egui::Context) {
         .font_data
         .insert(INTER_BOLD.to_owned(), weighted(700.0));
 
+    let has_cjk = if let Some(cjk_bytes) = load_system_cjk_font() {
+        fonts.font_data.insert(
+            CJK_FALLBACK.to_owned(),
+            Arc::new(FontData::from_owned(cjk_bytes)),
+        );
+        true
+    } else {
+        false
+    };
+
     fonts
         .families
         .entry(FontFamily::Proportional)
         .or_default()
         .insert(0, "inter".to_owned());
+
+    if has_cjk {
+        let prop = fonts.families.entry(FontFamily::Proportional).or_default();
+        if !prop.contains(&CJK_FALLBACK.to_owned()) {
+            prop.push(CJK_FALLBACK.to_owned());
+        }
+        let mono = fonts.families.entry(FontFamily::Monospace).or_default();
+        if !mono.contains(&CJK_FALLBACK.to_owned()) {
+            mono.push(CJK_FALLBACK.to_owned());
+        }
+    }
+
     let fallbacks: Vec<String> = fonts.families[&FontFamily::Proportional]
         .iter()
         .skip(1)
@@ -750,4 +861,27 @@ pub fn section_title(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Respo
 
 pub fn subtle(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Response {
     text(ui, label, regular(13.0), palette.secondary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn installs_fonts_and_renders_cjk() {
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+        output.textures_delta.clear();
+        let font_id = regular(14.0);
+        let galley = ctx.fonts_mut(|f| {
+            f.layout_no_wrap(
+                "测试中文字体渲染 Snoop 123 ♪ 华语流行 晴天 周杰伦".to_owned(),
+                font_id,
+                egui::Color32::WHITE,
+            )
+        });
+        assert!(!galley.rows.is_empty());
+        assert!(galley.size().x > 0.0);
+    }
 }
