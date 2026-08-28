@@ -429,6 +429,9 @@ pub enum Action {
     Seek(u32),
     SeekBy(i64),
     SetVolume(u8),
+    /// A volume from a slider still under the pointer. Rate limited, and
+    /// only applied to local playback; the commit arrives as `SetVolume`.
+    PreviewVolume(u8),
     VolumeBy(i8),
     ToggleMute,
     ToggleShuffle,

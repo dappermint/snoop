@@ -103,7 +103,7 @@ fn main() -> eframe::Result<()> {
     #[cfg(feature = "demo")]
     if cli.demo_shot.is_some() {
         options = app::AppOptions {
-            mpris: false,
+            media_controls: false,
             tray: false,
         };
     }
@@ -139,6 +139,12 @@ fn main() -> eframe::Result<()> {
             options,
             Box::new(move |cc| {
                 creator_waker.attach(&cc.egui_ctx);
+                #[cfg(target_os = "macos")]
+                {
+                    snoop::mac_menu::init();
+                    let ctx = cc.egui_ctx.clone();
+                    snoop::mac_menu::set_waker(move || ctx.request_repaint());
+                }
                 let mut app = creator_slot
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
@@ -308,13 +314,6 @@ impl Shell {
 
 impl eframe::App for Shell {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        #[cfg(target_os = "macos")]
-        {
-            snoop::mac_menu::init();
-            let ctx_clone = ctx.clone();
-            snoop::mac_menu::set_waker(move || ctx_clone.request_repaint());
-        }
-
         if let Some(app) = self.app.as_mut() {
             #[cfg(target_os = "macos")]
             for cmd in snoop::mac_menu::drain_commands() {

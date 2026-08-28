@@ -17,6 +17,15 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         key(Modifiers::COMMAND, Key::F, Action::FocusSearch);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
         key(Modifiers::COMMAND, Key::Q, Action::Quit);
+        // ⌘H is Hide Application on macOS and the system menu wins it, so
+        // Home moves aside there.
+        #[cfg(target_os = "macos")]
+        key(
+            Modifiers::COMMAND | Modifiers::SHIFT,
+            Key::H,
+            Action::Open(Page::Home),
+        );
+        #[cfg(not(target_os = "macos"))]
         key(Modifiers::COMMAND, Key::H, Action::Open(Page::Home));
         key(Modifiers::COMMAND, Key::L, Action::Open(Page::LikedSongs));
         key(
@@ -45,6 +54,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             Key::B,
             Action::OpenUri("album".into()),
         );
+        // ⌘⇧Q is Log Out on macOS; the queue takes ⌘U there instead.
+        #[cfg(target_os = "macos")]
+        key(Modifiers::COMMAND, Key::U, Action::ToggleQueuePanel);
+        #[cfg(not(target_os = "macos"))]
         key(
             Modifiers::COMMAND | Modifiers::SHIFT,
             Key::Q,
@@ -102,10 +115,10 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("M", "Mute or unmute"),
     ("S", "Toggle shuffle"),
     ("R", "Cycle repeat"),
-    ("Q", "Show the queue"),
+    ("Q  or  ⌘U", "Show the queue"),
     ("⌘F  or  /", "Search"),
     ("⌘[  /  ⌘]  or  ⌥←  /  ⌥→", "Back or forward"),
-    ("⌘H", "Home"),
+    ("⌘⇧H", "Home"),
     ("⌘L", "Liked Songs"),
     ("⌘Shift+A", "Go to the playing artist"),
     ("⌘Shift+B", "Go to the playing album"),

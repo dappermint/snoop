@@ -247,23 +247,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
-        widgets::setting_row(
-            ui,
-            &palette,
-            "Keep music playing when the window closes",
-            if cfg!(target_os = "macos") {
-                "Snoop hides to the menu bar. Quit from the menu or with ⌘Q."
-            } else {
-                "Snoop hides to the system tray. Quit from the tray menu or with Ctrl+Q."
-            },
-            |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.keep_playing_in_background)
-                    .changed()
-                {
-                    changed = true;
-                }
-            },
-        );
+        // Without a tray item a hidden window cannot be brought back, so the
+        // switch is only offered where it does something.
+        if app.can_run_in_background {
+            widgets::setting_row(
+                ui,
+                &palette,
+                "Keep music playing when the window closes",
+                "Snoop hides to the system tray. Quit from the tray menu or with Ctrl+Q.",
+                |ui| {
+                    if widgets::switch(ui, &palette, &mut app.settings.keep_playing_in_background)
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                },
+            );
+        }
         if cfg!(target_os = "linux") {
             widgets::setting_row(
                 ui,

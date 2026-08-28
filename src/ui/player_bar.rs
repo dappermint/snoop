@@ -400,17 +400,14 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
         ui,
         &palette,
         egui::Id::new("volume-slider"),
-        volume as f32 / 100.0,
+        shown as f32 / 100.0,
         92.0,
         palette.accent,
     ) {
         SliderEvent::Dragging(value) => {
             app.volume_preview = Some(value);
-            // Local volume is cheap to apply continuously; remote goes on release.
-            if now.is_none_or(|now| now.local) {
-                app.actions
-                    .push(Action::SetVolume((value * 100.0).round() as u8));
-            }
+            app.actions
+                .push(Action::PreviewVolume((value * 100.0).round() as u8));
         }
         SliderEvent::Committed(value) => {
             app.volume_preview = None;

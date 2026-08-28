@@ -61,10 +61,10 @@ mod mac_impl {
         if let Ok(mut list) = COMMANDS.lock() {
             list.push(cmd);
         }
-        if let Ok(w) = WAKER.lock() {
-            if let Some(wake) = w.as_ref() {
-                wake();
-            }
+        if let Ok(w) = WAKER.lock()
+            && let Some(wake) = w.as_ref()
+        {
+            wake();
         }
     }
 
@@ -185,8 +185,6 @@ mod mac_impl {
         }
     );
 
-    static mut HANDLER: Option<Retained<SnoopMenuHandler>> = None;
-
     fn create_item(
         mtm: MainThreadMarker,
         title: &NSString,
@@ -244,26 +242,23 @@ mod mac_impl {
             objc2::msg_send_id![mtm.alloc::<SnoopMenuHandler>(), init]
         };
         let target: &NSObject = &handler;
-        unsafe {
-            HANDLER = Some(handler.clone());
-        }
 
         // 1. Settings item in app menu (first menu)
-        if let Some(app_menu_item) = unsafe { menubar.itemAtIndex(0) } {
-            if let Some(app_menu) = unsafe { app_menu_item.submenu() } {
-                let settings_item = create_item(
-                    mtm,
-                    ns_string!("Settings…"),
-                    Some(sel!(openSettings:)),
-                    ns_string!(","),
-                    None,
-                    Some(target),
-                );
-                let sep = NSMenuItem::separatorItem(mtm);
-                unsafe {
-                    app_menu.insertItem_atIndex(&settings_item, 1);
-                    app_menu.insertItem_atIndex(&sep, 2);
-                }
+        if let Some(app_menu_item) = unsafe { menubar.itemAtIndex(0) }
+            && let Some(app_menu) = unsafe { app_menu_item.submenu() }
+        {
+            let settings_item = create_item(
+                mtm,
+                ns_string!("Settings…"),
+                Some(sel!(openSettings:)),
+                ns_string!(","),
+                None,
+                Some(target),
+            );
+            let sep = NSMenuItem::separatorItem(mtm);
+            unsafe {
+                app_menu.insertItem_atIndex(&settings_item, 1);
+                app_menu.insertItem_atIndex(&sep, 2);
             }
         }
 
@@ -359,20 +354,24 @@ mod mac_impl {
             Some(target),
         ));
         playback_menu.addItem(&NSMenuItem::separatorItem(mtm));
+        // Shift+arrow has no key equivalent here on purpose: a menu key
+        // equivalent fires ahead of the focused view, so binding it would
+        // take shift-arrow selection away from every text field. The window
+        // handles the same chord itself, and only when nothing has focus.
         playback_menu.addItem(&create_item(
             mtm,
             ns_string!("Seek Forward (10s)"),
             Some(sel!(seekForward:)),
-            &NSString::from_str("\u{F703}"),
-            Some(NSEventModifierFlags::NSEventModifierFlagShift),
+            ns_string!(""),
+            None,
             Some(target),
         ));
         playback_menu.addItem(&create_item(
             mtm,
             ns_string!("Seek Backward (10s)"),
             Some(sel!(seekBackward:)),
-            &NSString::from_str("\u{F702}"),
-            Some(NSEventModifierFlags::NSEventModifierFlagShift),
+            ns_string!(""),
+            None,
             Some(target),
         ));
         playback_menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -442,8 +441,11 @@ mod mac_impl {
             mtm,
             ns_string!("Home"),
             Some(sel!(openHome:)),
-            ns_string!("h"),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
+            ns_string!("H"),
+            Some(
+                NSEventModifierFlags::NSEventModifierFlagCommand
+                    | NSEventModifierFlags::NSEventModifierFlagShift,
+            ),
             Some(target),
         ));
         view_menu.addItem(&create_item(
@@ -466,8 +468,8 @@ mod mac_impl {
             mtm,
             ns_string!("Queue"),
             Some(sel!(toggleQueue:)),
-            ns_string!("Q"),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand | NSEventModifierFlags::NSEventModifierFlagShift),
+            ns_string!("u"),
+            Some(NSEventModifierFlags::NSEventModifierFlagCommand),
             Some(target),
         ));
         view_menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -529,5 +531,10 @@ mod mac_impl {
             Some(target),
         ));
         menubar.addItem(&help_item);
+
+        // NSMenuItem does not retain its target, and this one has to answer
+        // for as long as the menu bar exists. It is a single process-wide
+        // object, so leaking it is the whole lifetime story.
+        std::mem::forget(handler);
     }
 }

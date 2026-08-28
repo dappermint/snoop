@@ -7,6 +7,7 @@ a mac-first fork of [fastpotify](https://github.com/crmne/fastpotify): native, l
 ## what makes it mac-first
 
 - **unified transparent titlebar:** fullsize content view with native traffic light controls cleanly integrated into the sidebar header
+- **now playing everywhere:** media keys, control centre, the lock screen, and the airpods pinch all drive snoop, cover art included
 - **dracula pro visual language:** default palette tuned to dracula pro with high-contrast accents and matching app icon
 - **macos shortcuts:** native `⌘` keybindings everywhere, including `⌘[` / `⌘]` for page history navigation
 - **zero electron bloat:** starts in under a second and stays tiny in memory while playing gapless 320 kbps audio
@@ -36,6 +37,15 @@ or build with cargo directly:
 cargo run --release
 ```
 
+to build a real `Snoop.app` (macos routes media keys, control centre, and the lock screen only to bundled apps, so `cargo run` does not get them):
+
+```bash
+cargo build --release
+packaging/macos/bundle.sh target/release/snoop Snoop.app 0.1.4
+```
+
+the bundle is ad-hoc signed by default. set `CODESIGN_IDENTITY` to a developer id to sign it for distribution.
+
 to run with sample demo data (no spotify login needed):
 
 ```bash
@@ -52,10 +62,10 @@ cargo run --features demo -- --demo --demo-page playlist:pl1 --demo-show queue
 | `⌘↑` / `⌘↓` | volume up or down |
 | `M` | mute or unmute |
 | `S` / `R` | shuffle / cycle repeat |
-| `Q` | toggle queue panel |
+| `Q` or `⌘U` | toggle queue panel |
 | `⌘F` or `/` | search |
 | `⌘[` / `⌘]` or `⌥←` / `⌥→` | back or forward |
-| `⌘H` / `⌘L` | home / liked songs |
+| `⌘Shift+H` / `⌘L` | home / liked songs |
 | `⌘Shift+A` / `⌘Shift+B` | playing artist / album |
 | `⌘,` | settings |
 | `⌘/` | keyboard shortcuts |

@@ -14,7 +14,8 @@ use crate::backend::{
     Waker,
 };
 use crate::model::*;
-use crate::mpris::{MprisCommand, MprisService, MprisState, MprisTrack};
+use crate::media::{MediaCommand, MediaState, MediaTrack};
+use crate::media_controls::MediaControls;
 use crate::paths::AppDirs;
 use crate::player::{EngineConfig, LoadSpec, LocalState, Playback, PlayerCommand, RepeatMode};
 use crate::settings::{SessionState, Settings, ThemeChoice};
@@ -36,6 +37,10 @@ const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
 /// A second look after a command, so the button settles quickly rather than
 /// waiting for the ordinary poll.
 const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
+/// The shortest gap between volume commands sent from a slider still under
+/// the pointer. Every one of them reaches librespot, which rewrites its
+/// cached volume file, so a drag must not run at the frame rate.
+const VOLUME_DRAG_INTERVAL: Duration = Duration::from_millis(80);
 const CONTAINS_BATCH: usize = 50;
 
 pub struct RemoteSnapshot {
@@ -78,8 +83,9 @@ pub enum Target {
 /// How the application is being started.
 #[derive(Clone, Copy, Debug)]
 pub struct AppOptions {
-    /// Register the MPRIS media-control service (Linux).
-    pub mpris: bool,
+    /// Register the desktop's media controls: MPRIS on Linux, Now Playing
+    /// and the remote command centre on macOS.
+    pub media_controls: bool,
     /// Register the system-tray item (Linux).
     pub tray: bool,
 }
@@ -87,7 +93,7 @@ pub struct AppOptions {
 impl Default for AppOptions {
     fn default() -> Self {
         Self {
-            mpris: true,
+            media_controls: true,
             tray: true,
         }
     }
@@ -99,8 +105,11 @@ pub struct App {
     settings_dirty: bool,
     last_settings_save: Instant,
     pub backend: Backend,
-    mpris: Option<MprisService>,
+    media_controls: Option<MediaControls>,
     tray: Option<TrayService>,
+    /// Whether closing the window can leave the process running: without a
+    /// tray item there is nothing left to bring it back.
+    pub can_run_in_background: bool,
     pub window_hidden: bool,
     /// The window should close but the process should stay in the tray.
     pub hide_intent: bool,
@@ -179,6 +188,12 @@ pub struct App {
     pub sign_in_url: Option<String>,
     pending_remote_position: Option<(u32, Instant)>,
     pending_remote_volume: Option<(u8, Instant)>,
+    /// A volume set here that the engine has not echoed back yet. `Player`
+    /// reports `VolumeChanged` asynchronously while position snapshots land
+    /// every second, so without this the slider springs back to whatever the
+    /// engine last knew.
+    pending_local_volume: Option<(u16, Instant)>,
+    last_volume_command: Option<Instant>,
     optimistic_playing: Option<(bool, Instant)>,
     last_now_playing_uri: Option<String>,
     pub playlist_busy: bool,
@@ -195,9 +210,9 @@ impl App {
             waker.clone(),
         );
         let wake = waker.clone();
-        let mpris = options
-            .mpris
-            .then(|| MprisService::spawn(move || wake.wake()));
+        let media_controls = options
+            .media_controls
+            .then(|| MediaControls::spawn(move || wake.wake()));
         let wake = waker.clone();
         let tray = options
             .tray
@@ -218,7 +233,8 @@ impl App {
             settings_dirty: false,
             last_settings_save: Instant::now(),
             backend,
-            mpris,
+            media_controls,
+            can_run_in_background: tray.is_some(),
             tray,
             window_hidden: false,
             hide_intent: false,
@@ -276,6 +292,8 @@ impl App {
             sign_in_url: None,
             pending_remote_position: None,
             pending_remote_volume: None,
+            pending_local_volume: None,
+            last_volume_command: None,
             optimistic_playing: None,
             last_now_playing_uri: None,
             playlist_busy: false,
@@ -653,14 +671,15 @@ impl App {
         if state.track != self.local.track {
             self.clear_play_pending();
         }
-        if state.volume != self.local.volume {
+        let held_volume = self.held_local_volume(state.volume);
+        if held_volume.is_none() && state.volume != self.local.volume {
             self.settings.volume = state.volume;
             self.settings_dirty = true;
         }
         if state.seek_sequence != self.local.seek_sequence
-            && let Some(mpris) = &self.mpris
+            && let Some(controls) = &self.media_controls
         {
-            mpris.seeked(state.position_ms);
+            controls.seeked(state.position_ms);
         }
         if let Some(error) = &state.error
             && self.local.error.as_deref() != Some(error.as_str())
@@ -668,8 +687,26 @@ impl App {
             self.toast_error(error.clone());
         }
         self.local = state;
+        if let Some(volume) = held_volume {
+            self.local.volume = volume;
+        }
         if track_changed {
             self.on_now_playing_changed();
+        }
+    }
+
+    /// The volume this side set and the engine has yet to confirm, if the
+    /// snapshot at `reported` is still the stale one.
+    fn held_local_volume(&mut self, reported: u16) -> Option<u16> {
+        match self.pending_local_volume {
+            Some((volume, at)) if volume != reported && at.elapsed() < OPTIMISTIC_HOLD => {
+                Some(volume)
+            }
+            Some(_) => {
+                self.pending_local_volume = None;
+                None
+            }
+            None => None,
         }
     }
 
@@ -798,38 +835,38 @@ impl App {
         }
     }
 
-    fn handle_mpris(&mut self) {
-        let Some(commands) = self.mpris.as_ref().map(MprisService::drain_commands) else {
+    fn handle_media_controls(&mut self) {
+        let Some(commands) = self.media_controls.as_ref().map(MediaControls::drain_commands) else {
             return;
         };
         for command in commands {
             let playing = self.now_playing().is_some_and(|now| now.playing);
             let action = match command {
-                MprisCommand::Play => (!playing).then_some(Action::TogglePlay),
-                MprisCommand::Pause | MprisCommand::Stop => playing.then_some(Action::TogglePlay),
-                MprisCommand::PlayPause => Some(Action::TogglePlay),
-                MprisCommand::Next => Some(Action::Next),
-                MprisCommand::Previous => Some(Action::Previous),
-                MprisCommand::SeekBy(offset) => Some(Action::SeekBy(offset)),
-                MprisCommand::SetPosition {
+                MediaCommand::Play => (!playing).then_some(Action::TogglePlay),
+                MediaCommand::Pause | MediaCommand::Stop => playing.then_some(Action::TogglePlay),
+                MediaCommand::PlayPause => Some(Action::TogglePlay),
+                MediaCommand::Next => Some(Action::Next),
+                MediaCommand::Previous => Some(Action::Previous),
+                MediaCommand::SeekBy(offset) => Some(Action::SeekBy(offset)),
+                MediaCommand::SetPosition {
                     track_uri,
                     position_ms,
                 } => self
                     .now_playing()
                     .filter(|now| now.uri == track_uri)
                     .map(|_| Action::Seek(position_ms)),
-                MprisCommand::SetVolume(volume) => Some(Action::SetVolume(
+                MediaCommand::SetVolume(volume) => Some(Action::SetVolume(
                     (volume.clamp(0.0, 1.0) * 100.0).round() as u8,
                 )),
-                MprisCommand::SetShuffle(shuffle) => Some(Action::SetShuffle(shuffle)),
-                MprisCommand::SetRepeat(mode) => Some(Action::SetRepeat(mode)),
-                MprisCommand::OpenUri(uri) => Some(Action::PlayContext {
+                MediaCommand::SetShuffle(shuffle) => Some(Action::SetShuffle(shuffle)),
+                MediaCommand::SetRepeat(mode) => Some(Action::SetRepeat(mode)),
+                MediaCommand::OpenUri(uri) => Some(Action::PlayContext {
                     uri,
                     offset_uri: None,
                     offset_index: None,
                 }),
-                MprisCommand::Raise => Some(Action::ShowWindow),
-                MprisCommand::Quit => Some(Action::Quit),
+                MediaCommand::Raise => Some(Action::ShowWindow),
+                MediaCommand::Quit => Some(Action::Quit),
             };
             if let Some(action) = action {
                 self.actions.push(action);
@@ -837,9 +874,9 @@ impl App {
         }
     }
 
-    fn sync_mpris(&mut self) {
+    fn sync_media_controls(&mut self) {
         let state = match self.now_playing() {
-            Some(now) => MprisState {
+            Some(now) => MediaState {
                 playback: if now.playing {
                     Playback::Playing
                 } else if now.loading {
@@ -847,7 +884,7 @@ impl App {
                 } else {
                     Playback::Paused
                 },
-                track: Some(MprisTrack {
+                track: Some(MediaTrack {
                     uri: now.uri.clone(),
                     title: now.title.clone(),
                     artists: now
@@ -865,10 +902,10 @@ impl App {
                 repeat: now.repeat,
                 can_control: now.can_control,
             },
-            None => MprisState::default(),
+            None => MediaState::default(),
         };
-        if let Some(mpris) = &mut self.mpris {
-            mpris.update(state);
+        if let Some(controls) = &mut self.media_controls {
+            controls.update(state);
         }
         let playing = self.now_playing().is_some_and(|now| now.playing);
         if let Some(tray) = &mut self.tray {
@@ -2013,6 +2050,15 @@ impl App {
             Target::Local => {
                 let volume = percent_to_volume(percent);
                 self.local.volume = volume;
+                self.pending_local_volume = Some((volume, Instant::now()));
+                self.last_volume_command = Some(Instant::now());
+                // The engine only echoes `VolumeChanged` back while this
+                // device is the active Connect one, so the setting is saved
+                // here rather than waiting for a snapshot that may never come.
+                if self.settings.volume != volume {
+                    self.settings.volume = volume;
+                    self.settings_dirty = true;
+                }
                 self.backend.player(PlayerCommand::Volume(volume));
             }
             Target::Remote(device_id) => {
@@ -2260,6 +2306,18 @@ impl App {
             Action::SetVolume(percent) => {
                 self.volume_before_mute = None;
                 self.set_volume(percent);
+            }
+            Action::PreviewVolume(percent) => {
+                // Remote volume is a Web API call per change, so a drag only
+                // moves the handle there and commits on release.
+                if matches!(self.target(), Target::Local)
+                    && self
+                        .last_volume_command
+                        .is_none_or(|at| at.elapsed() >= VOLUME_DRAG_INTERVAL)
+                {
+                    self.volume_before_mute = None;
+                    self.set_volume(percent);
+                }
             }
             Action::VolumeBy(delta) => {
                 if let Some(now) = self.now_playing() {
@@ -2603,11 +2661,11 @@ impl App {
             self.actions.push(Action::ShowWindow);
         }
         self.handle_events();
-        self.handle_mpris();
+        self.handle_media_controls();
         self.handle_tray();
         self.tick(ctx);
         self.apply_actions(ctx);
-        self.sync_mpris();
+        self.sync_media_controls();
     }
 
     pub fn frame_ui(&mut self, ui: &mut egui::Ui) {
@@ -2616,7 +2674,7 @@ impl App {
         self.apply_theme(ctx);
         crate::ui::show(self, ui);
         self.apply_actions(ctx);
-        self.sync_mpris();
+        self.sync_media_controls();
 
         let playing = self.now_playing().is_some_and(|now| now.playing);
         if playing {
@@ -2725,5 +2783,64 @@ mod tests {
         assert_eq!(volume_to_percent(0), 0);
         assert_eq!(volume_to_percent(percent_to_volume(70)), 70);
         assert_eq!(percent_to_volume(200), u16::MAX);
+    }
+
+    fn headless_app() -> App {
+        let root = std::env::temp_dir().join(format!("snoop-volume-test-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let mut app = App::new(
+            &Waker::default(),
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.local_ready = true;
+        app
+    }
+
+    fn snapshot_at(percent: u8) -> LocalState {
+        LocalState {
+            volume: percent_to_volume(percent),
+            ..LocalState::default()
+        }
+    }
+
+    #[test]
+    fn a_volume_set_here_is_saved_immediately() {
+        let mut app = headless_app();
+        app.set_volume(80);
+        assert_eq!(volume_to_percent(app.settings.volume), 80);
+        assert!(app.settings_dirty);
+    }
+
+    #[test]
+    fn a_stale_engine_snapshot_does_not_pull_the_volume_back() {
+        let mut app = headless_app();
+        app.set_volume(80);
+
+        // The engine reports `VolumeChanged` asynchronously, so its next
+        // snapshot still carries the volume from before the change.
+        app.handle_local(snapshot_at(20));
+        assert_eq!(volume_to_percent(app.local.volume), 80);
+        assert_eq!(volume_to_percent(app.settings.volume), 80);
+
+        // Once it has caught up, its snapshots are trusted again.
+        app.handle_local(snapshot_at(80));
+        assert_eq!(volume_to_percent(app.local.volume), 80);
+    }
+
+    #[test]
+    fn a_volume_changed_outside_snoop_is_adopted() {
+        let mut app = headless_app();
+        app.handle_local(snapshot_at(35));
+        assert_eq!(volume_to_percent(app.local.volume), 35);
+        assert_eq!(volume_to_percent(app.settings.volume), 35);
     }
 }
