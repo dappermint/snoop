@@ -126,7 +126,7 @@ pub fn app_icon_rgba(size: usize) -> Vec<u8> {
             let negative = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
             let positive = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
             let inside = !(negative && positive);
-            let (r, g, b) = if inside { (10, 20, 14) } else { (30, 215, 96) };
+            let (r, g, b) = if inside { (0x22, 0x21, 0x2c) } else { (0x95, 0x80, 0xff) };
             let index = (y * size + x) * 4;
             rgba[index] = r;
             rgba[index + 1] = g;

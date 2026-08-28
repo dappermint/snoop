@@ -61,7 +61,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            device_name: "Fastpotify".to_string(),
+            device_name: "Snoop".to_string(),
             bitrate: 320,
             normalisation: false,
             autoplay: true,

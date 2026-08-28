@@ -2,13 +2,13 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use fastpotify::{app, backend, paths, settings, single_instance, util};
+use snoop::{app, backend, paths, settings, single_instance, util};
 
 use clap::Parser;
 
 /// A fast, native Spotify client.
 #[derive(Debug, Parser)]
-#[command(name = "fastpotify", version, about)]
+#[command(name = "snoop", version, about)]
 struct Cli {
     /// Spotify Connect device name for this session.
     #[arg(long)]
@@ -52,9 +52,9 @@ struct Cli {
 fn main() -> eframe::Result<()> {
     let cli = Cli::parse();
     let default_filter = if cli.verbose {
-        "info,librespot=info,fastpotify=debug"
+        "info,librespot=info,snoop=debug"
     } else {
-        "warn,fastpotify=info"
+        "warn,snoop=info"
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter))
         .init();
@@ -86,7 +86,7 @@ fn main() -> eframe::Result<()> {
         match single_instance::acquire(&waker) {
             single_instance::Outcome::Only(guard) => Some(guard),
             single_instance::Outcome::Surfaced => {
-                log::info!("Fastpotify is already running; asked it to show its window");
+                log::info!("Snoop is already running; asked it to show its window");
                 return Ok(());
             }
         }
@@ -112,8 +112,8 @@ fn main() -> eframe::Result<()> {
     }
     #[cfg(feature = "demo")]
     if demo {
-        fastpotify::demo::populate(&mut app);
-        fastpotify::demo::apply_flags(&mut app, cli.demo_page.as_deref(), cli.demo_show.as_deref());
+        snoop::demo::populate(&mut app);
+        snoop::demo::apply_flags(&mut app, cli.demo_page.as_deref(), cli.demo_show.as_deref());
     }
     #[cfg(feature = "demo")]
     let shot = cli.demo_shot.clone().map(|path| Shot {
@@ -133,7 +133,7 @@ fn main() -> eframe::Result<()> {
         #[cfg(not(feature = "demo"))]
         let options = native_options(false);
         eframe::run_native(
-            "Fastpotify",
+            "Snoop",
             options,
             Box::new(move |cc| {
                 creator_waker.attach(&cc.egui_ctx);
@@ -202,14 +202,25 @@ fn main() -> eframe::Result<()> {
 }
 
 fn native_options(fullscreen: bool) -> eframe::NativeOptions {
+    #[allow(unused_mut)]
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Snoop")
+        .with_app_id("snoop")
+        .with_inner_size([1240.0, 800.0])
+        .with_min_inner_size([760.0, 520.0])
+        .with_fullscreen(fullscreen)
+        .with_icon(app_icon());
+
+    #[cfg(target_os = "macos")]
+    {
+        viewport = viewport
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false)
+            .with_title_shown(false);
+    }
+
     eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Fastpotify")
-            .with_app_id("fastpotify")
-            .with_inner_size([1240.0, 800.0])
-            .with_min_inner_size([760.0, 520.0])
-            .with_fullscreen(fullscreen)
-            .with_icon(app_icon()),
+        viewport,
         // A Wayland compositor stops sending frame callbacks to a hidden
         // window; waiting for vsync there would block the event loop.
         // Repaints are event-driven, so nothing spins.

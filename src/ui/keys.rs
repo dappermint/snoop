@@ -26,6 +26,11 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         );
         key(Modifiers::ALT, Key::ArrowLeft, Action::Back);
         key(Modifiers::ALT, Key::ArrowRight, Action::Forward);
+        #[cfg(target_os = "macos")]
+        {
+            key(Modifiers::COMMAND, Key::OpenBracket, Action::Back);
+            key(Modifiers::COMMAND, Key::CloseBracket, Action::Forward);
+        }
         key(Modifiers::COMMAND, Key::ArrowLeft, Action::Previous);
         key(Modifiers::COMMAND, Key::ArrowRight, Action::Next);
         key(Modifiers::COMMAND, Key::ArrowUp, Action::VolumeBy(5));
@@ -88,6 +93,28 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub const SHORTCUTS: &[(&str, &str)] = &[
+    ("Space", "Play or pause"),
+    ("⌘←  /  ⌘→", "Previous or next"),
+    ("Shift+←  /  Shift+→", "Seek 10 seconds"),
+    ("⌘↑  /  ⌘↓", "Volume up or down"),
+    ("M", "Mute or unmute"),
+    ("S", "Toggle shuffle"),
+    ("R", "Cycle repeat"),
+    ("Q", "Show the queue"),
+    ("⌘F  or  /", "Search"),
+    ("⌘[  /  ⌘]  or  ⌥←  /  ⌥→", "Back or forward"),
+    ("⌘H", "Home"),
+    ("⌘L", "Liked Songs"),
+    ("⌘Shift+A", "Go to the playing artist"),
+    ("⌘Shift+B", "Go to the playing album"),
+    ("⌘,", "Settings"),
+    ("⌘/", "Keyboard shortcuts"),
+    ("⌘Q", "Quit"),
+];
+
+#[cfg(not(target_os = "macos"))]
 pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Space", "Play or pause"),
     ("Ctrl+←  /  Ctrl+→", "Previous or next"),

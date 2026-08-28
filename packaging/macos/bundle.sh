@@ -15,17 +15,17 @@ here="$(cd "$(dirname "$0")" && pwd)"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
-cp "$binary" "$app/Contents/MacOS/fastpotify"
-chmod 755 "$app/Contents/MacOS/fastpotify"
+cp "$binary" "$app/Contents/MacOS/snoop"
+chmod 755 "$app/Contents/MacOS/snoop"
 sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"
 
-iconset="$(mktemp -d)/fastpotify.iconset"
+iconset="$(mktemp -d)/snoop.iconset"
 mkdir -p "$iconset"
 for size in 16 32 64 128 256 512; do
     sips -z $size $size "$here/icon-1024.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
     double=$((size * 2))
     sips -z $double $double "$here/icon-1024.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
 done
-iconutil -c icns "$iconset" -o "$app/Contents/Resources/fastpotify.icns"
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/snoop.icns"
 
 echo "$app"

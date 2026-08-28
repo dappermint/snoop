@@ -66,9 +66,9 @@ const INSTANCE_PORT: u16 = 47_113;
 /// Sent by a later launch, and answered, so a foreign program that happens to
 /// hold the port is never mistaken for Fastpotify.
 #[cfg(not(target_os = "linux"))]
-const SHOW_REQUEST: &[u8] = b"fastpotify:show\n";
+const SHOW_REQUEST: &[u8] = b"snoop:show\n";
 #[cfg(not(target_os = "linux"))]
-const SHOW_ACK: &[u8] = b"fastpotify:ok\n";
+const SHOW_ACK: &[u8] = b"snoop:ok\n";
 
 #[cfg(not(target_os = "linux"))]
 pub fn acquire(waker: &crate::backend::Waker) -> Outcome {

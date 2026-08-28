@@ -18,7 +18,7 @@ pub struct AppDirs {
 
 impl AppDirs {
     pub fn discover() -> Self {
-        let project = ProjectDirs::from("me", "paolino", "fastpotify");
+        let project = ProjectDirs::from("com", "dappermint", "snoop");
         match project {
             Some(project) => Self {
                 config: project.config_dir().to_path_buf(),
@@ -31,9 +31,9 @@ impl AppDirs {
             None => {
                 let fallback = std::env::current_dir().unwrap_or_default();
                 Self {
-                    config: fallback.join("fastpotify-config"),
-                    state: fallback.join("fastpotify-state"),
-                    cache: fallback.join("fastpotify-cache"),
+                    config: fallback.join("snoop-config"),
+                    state: fallback.join("snoop-state"),
+                    cache: fallback.join("snoop-cache"),
                 }
             }
         }

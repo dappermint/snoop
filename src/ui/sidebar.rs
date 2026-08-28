@@ -84,6 +84,9 @@ fn nav_row(
 fn contents(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let page = app.page().clone();
+    #[cfg(target_os = "macos")]
+    ui.add_space(28.0);
+    #[cfg(not(target_os = "macos"))]
     ui.add_space(4.0);
     if nav_row(ui, &palette, Icon::House, "Home", page == Page::Home).clicked() {
         app.actions.push(Action::Open(Page::Home));

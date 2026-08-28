@@ -11,7 +11,7 @@ fn main() -> anyhow::Result<()> {
     let wanted = std::env::args().nth(1);
 
     println!("browsing for _spotify-connect._tcp ...");
-    let receivers = fastpotify::zeroconf::discover(Duration::from_secs(4))?;
+    let receivers = snoop::zeroconf::discover(Duration::from_secs(4))?;
     if receivers.is_empty() {
         println!("  none found");
         return Ok(());
@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
             "  {} at {}:{}",
             receiver.name, receiver.address, receiver.port
         );
-        match fastpotify::zeroconf::get_info(&http, receiver) {
+        match snoop::zeroconf::get_info(&http, receiver) {
             Ok(info) => println!(
                 "  [{} {} | token={} | active_user={:?}]",
                 info.remote_name, info.device_type, info.token_type, info.active_user
@@ -42,11 +42,11 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     };
 
-    let dirs = fastpotify::paths::AppDirs::discover();
-    let credentials = fastpotify::zeroconf::Credentials::load(&dirs.credentials_dir())?;
+    let dirs = snoop::paths::AppDirs::discover();
+    let credentials = snoop::zeroconf::Credentials::load(&dirs.credentials_dir())?;
     println!("\nhanding the account to {} ...", receiver.name);
-    let info = fastpotify::zeroconf::get_info(&http, receiver)?;
-    match fastpotify::zeroconf::add_user(&http, receiver, &info, &credentials, "Fastpotify") {
+    let info = snoop::zeroconf::get_info(&http, receiver)?;
+    match snoop::zeroconf::add_user(&http, receiver, &info, &credentials, "Snoop") {
         Ok(()) => println!("  accepted"),
         Err(error) => {
             println!("  refused: {error}");

@@ -9,3 +9,4 @@ docs/.jekyll-cache/
 docs/vendor/
 docs/.bundle/
 .direnv/
+/*.app/
