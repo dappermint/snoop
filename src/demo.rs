@@ -570,8 +570,7 @@ mod tests {
     /// Every page, panel, and dialog lays out without panicking.
     #[test]
     fn every_surface_renders_headless() {
-        let root =
-            std::env::temp_dir().join(format!("snoop-render-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("snoop-render-test-{}", std::process::id()));
         let dirs = AppDirs {
             config: root.join("config"),
             state: root.join("state"),

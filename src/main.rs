@@ -2,9 +2,9 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use snoop::{app, backend, paths, settings, single_instance};
 #[cfg(not(target_os = "macos"))]
 use snoop::util;
+use snoop::{app, backend, paths, settings, single_instance};
 
 use clap::Parser;
 
@@ -318,26 +318,64 @@ impl eframe::App for Shell {
             #[cfg(target_os = "macos")]
             for cmd in snoop::mac_menu::drain_commands() {
                 match cmd {
-                    snoop::mac_menu::MenuCommand::PlayPause => app.actions.push(snoop::model::Action::TogglePlay),
-                    snoop::mac_menu::MenuCommand::Next => app.actions.push(snoop::model::Action::Next),
-                    snoop::mac_menu::MenuCommand::Previous => app.actions.push(snoop::model::Action::Previous),
-                    snoop::mac_menu::MenuCommand::SeekForward => app.actions.push(snoop::model::Action::SeekBy(10_000)),
-                    snoop::mac_menu::MenuCommand::SeekBackward => app.actions.push(snoop::model::Action::SeekBy(-10_000)),
-                    snoop::mac_menu::MenuCommand::ToggleShuffle => app.actions.push(snoop::model::Action::ToggleShuffle),
-                    snoop::mac_menu::MenuCommand::CycleRepeat => app.actions.push(snoop::model::Action::CycleRepeat),
-                    snoop::mac_menu::MenuCommand::VolumeUp => app.actions.push(snoop::model::Action::VolumeBy(5)),
-                    snoop::mac_menu::MenuCommand::VolumeDown => app.actions.push(snoop::model::Action::VolumeBy(-5)),
-                    snoop::mac_menu::MenuCommand::ToggleMute => app.actions.push(snoop::model::Action::ToggleMute),
-                    snoop::mac_menu::MenuCommand::Home => app.actions.push(snoop::model::Action::Open(snoop::model::Page::Home)),
-                    snoop::mac_menu::MenuCommand::Search => app.actions.push(snoop::model::Action::FocusSearch),
-                    snoop::mac_menu::MenuCommand::LikedSongs => app.actions.push(snoop::model::Action::Open(snoop::model::Page::LikedSongs)),
-                    snoop::mac_menu::MenuCommand::Queue => app.actions.push(snoop::model::Action::ToggleQueuePanel),
-                    snoop::mac_menu::MenuCommand::Settings => app.actions.push(snoop::model::Action::Open(snoop::model::Page::Settings)),
-                    snoop::mac_menu::MenuCommand::Shortcuts => app.actions.push(snoop::model::Action::ShowDialog(snoop::model::Dialog::Shortcuts)),
-                    snoop::mac_menu::MenuCommand::Back => app.actions.push(snoop::model::Action::Back),
-                    snoop::mac_menu::MenuCommand::Forward => app.actions.push(snoop::model::Action::Forward),
+                    snoop::mac_menu::MenuCommand::PlayPause => {
+                        app.actions.push(snoop::model::Action::TogglePlay)
+                    }
+                    snoop::mac_menu::MenuCommand::Next => {
+                        app.actions.push(snoop::model::Action::Next)
+                    }
+                    snoop::mac_menu::MenuCommand::Previous => {
+                        app.actions.push(snoop::model::Action::Previous)
+                    }
+                    snoop::mac_menu::MenuCommand::SeekForward => {
+                        app.actions.push(snoop::model::Action::SeekBy(10_000))
+                    }
+                    snoop::mac_menu::MenuCommand::SeekBackward => {
+                        app.actions.push(snoop::model::Action::SeekBy(-10_000))
+                    }
+                    snoop::mac_menu::MenuCommand::ToggleShuffle => {
+                        app.actions.push(snoop::model::Action::ToggleShuffle)
+                    }
+                    snoop::mac_menu::MenuCommand::CycleRepeat => {
+                        app.actions.push(snoop::model::Action::CycleRepeat)
+                    }
+                    snoop::mac_menu::MenuCommand::VolumeUp => {
+                        app.actions.push(snoop::model::Action::VolumeBy(5))
+                    }
+                    snoop::mac_menu::MenuCommand::VolumeDown => {
+                        app.actions.push(snoop::model::Action::VolumeBy(-5))
+                    }
+                    snoop::mac_menu::MenuCommand::ToggleMute => {
+                        app.actions.push(snoop::model::Action::ToggleMute)
+                    }
+                    snoop::mac_menu::MenuCommand::Home => app
+                        .actions
+                        .push(snoop::model::Action::Open(snoop::model::Page::Home)),
+                    snoop::mac_menu::MenuCommand::Search => {
+                        app.actions.push(snoop::model::Action::FocusSearch)
+                    }
+                    snoop::mac_menu::MenuCommand::LikedSongs => app
+                        .actions
+                        .push(snoop::model::Action::Open(snoop::model::Page::LikedSongs)),
+                    snoop::mac_menu::MenuCommand::Queue => {
+                        app.actions.push(snoop::model::Action::ToggleQueuePanel)
+                    }
+                    snoop::mac_menu::MenuCommand::Settings => app
+                        .actions
+                        .push(snoop::model::Action::Open(snoop::model::Page::Settings)),
+                    snoop::mac_menu::MenuCommand::Shortcuts => app.actions.push(
+                        snoop::model::Action::ShowDialog(snoop::model::Dialog::Shortcuts),
+                    ),
+                    snoop::mac_menu::MenuCommand::Back => {
+                        app.actions.push(snoop::model::Action::Back)
+                    }
+                    snoop::mac_menu::MenuCommand::Forward => {
+                        app.actions.push(snoop::model::Action::Forward)
+                    }
                     snoop::mac_menu::MenuCommand::OpenRepo => {
-                        ctx.open_url(egui::OpenUrl::new_tab("https://github.com/dappermint/snoop"));
+                        ctx.open_url(egui::OpenUrl::new_tab(
+                            "https://github.com/dappermint/snoop",
+                        ));
                     }
                 }
             }

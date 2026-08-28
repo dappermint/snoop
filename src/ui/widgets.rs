@@ -51,7 +51,12 @@ pub fn paint_cover(
             Ok(egui::load::TexturePoll::Ready { .. })
         ) && {
             image.paint_at(ui, rect);
-            painter.rect_stroke(rect, corner, Stroke::new(1.0, egui::Color32::from_white_alpha(20)), egui::StrokeKind::Inside);
+            painter.rect_stroke(
+                rect,
+                corner,
+                Stroke::new(1.0, egui::Color32::from_white_alpha(20)),
+                egui::StrokeKind::Inside,
+            );
             true
         }
     });
@@ -510,15 +515,20 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
         ui.painter().rect_stroke(
             row_rect,
             corner,
-            Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, if hovered { 80 } else { 50 })),
+            Stroke::new(
+                1.0,
+                egui::Color32::from_rgba_unmultiplied(
+                    0x95,
+                    0x80,
+                    0xff,
+                    if hovered { 80 } else { 50 },
+                ),
+            ),
             egui::StrokeKind::Inside,
         );
     } else if hovered {
-        ui.painter().rect_filled(
-            row_rect,
-            corner,
-            egui::Color32::from_white_alpha(15),
-        );
+        ui.painter()
+            .rect_filled(row_rect, corner, egui::Color32::from_white_alpha(15));
         ui.painter().rect_stroke(
             row_rect,
             corner,
@@ -914,11 +924,8 @@ pub fn card(
         let hovered = ui.rect_contains_pointer(rect);
         if hovered {
             let card_corner = CornerRadius::same(theme::RADIUS + 2);
-            ui.painter().rect_filled(
-                rect,
-                card_corner,
-                egui::Color32::from_white_alpha(15),
-            );
+            ui.painter()
+                .rect_filled(rect, card_corner, egui::Color32::from_white_alpha(15));
             ui.painter().rect_stroke(
                 rect,
                 card_corner,
@@ -1176,7 +1183,8 @@ pub fn search_field(
         )
     };
     ui.painter().rect_filled(rect, height / 2.0, fill);
-    ui.painter().rect_stroke(rect, height / 2.0, stroke, egui::StrokeKind::Inside);
+    ui.painter()
+        .rect_stroke(rect, height / 2.0, stroke, egui::StrokeKind::Inside);
     let icon_rect =
         Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), Vec2::splat(16.0));
     Icon::Search

@@ -13,9 +13,9 @@ use crate::backend::{
     ApiRequest, ApiResponse, AuthStatus, Backend, Command, Event, LocalPlayback, RemoteAction,
     Waker,
 };
-use crate::model::*;
 use crate::media::{MediaCommand, MediaState, MediaTrack};
 use crate::media_controls::MediaControls;
+use crate::model::*;
 use crate::paths::AppDirs;
 use crate::player::{EngineConfig, LoadSpec, LocalState, Playback, PlayerCommand, RepeatMode};
 use crate::settings::{SessionState, Settings, ThemeChoice};
@@ -836,7 +836,11 @@ impl App {
     }
 
     fn handle_media_controls(&mut self) {
-        let Some(commands) = self.media_controls.as_ref().map(MediaControls::drain_commands) else {
+        let Some(commands) = self
+            .media_controls
+            .as_ref()
+            .map(MediaControls::drain_commands)
+        else {
             return;
         };
         for command in commands {

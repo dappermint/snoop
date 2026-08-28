@@ -35,7 +35,10 @@ fn nav_button(
             ui.painter().circle_stroke(
                 rect.center(),
                 16.0,
-                Stroke::new(1.0, egui::Color32::from_white_alpha(if response.hovered() { 40 } else { 20 })),
+                Stroke::new(
+                    1.0,
+                    egui::Color32::from_white_alpha(if response.hovered() { 40 } else { 20 }),
+                ),
             );
         }
         let color = if !enabled {

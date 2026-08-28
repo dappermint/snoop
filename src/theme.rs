@@ -645,7 +645,11 @@ pub fn soft_button(
     active: bool,
 ) -> Response {
     let font = medium(13.0);
-    let color = if active { palette.on_accent } else { palette.text };
+    let color = if active {
+        palette.on_accent
+    } else {
+        palette.text
+    };
     let galley = ui.painter().layout_no_wrap(label.to_string(), font, color);
     let icon_size = 15.0;
     let icon_width = if icon.is_some() { icon_size + 6.0 } else { 0.0 };

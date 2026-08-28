@@ -80,15 +80,15 @@ fn nav_row(
             ui.painter().rect_stroke(
                 pill_rect,
                 corner,
-                Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 85)),
+                Stroke::new(
+                    1.0,
+                    egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 85),
+                ),
                 egui::StrokeKind::Inside,
             );
         } else if hovered {
-            ui.painter().rect_filled(
-                pill_rect,
-                corner,
-                egui::Color32::from_white_alpha(15),
-            );
+            ui.painter()
+                .rect_filled(pill_rect, corner, egui::Color32::from_white_alpha(15));
             ui.painter().rect_stroke(
                 pill_rect,
                 corner,
@@ -110,7 +110,11 @@ fn nav_row(
             pos2(rect.left() + 44.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             label,
-            if active { theme::semibold(14.5) } else { theme::medium(14.5) },
+            if active {
+                theme::semibold(14.5)
+            } else {
+                theme::medium(14.5)
+            },
             color,
         );
     }
@@ -431,15 +435,15 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                         ui.painter().rect_stroke(
                             pill,
                             corner,
-                            Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 70)),
+                            Stroke::new(
+                                1.0,
+                                egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 70),
+                            ),
                             egui::StrokeKind::Inside,
                         );
                     } else if response.hovered() {
-                        ui.painter().rect_filled(
-                            pill,
-                            corner,
-                            egui::Color32::from_white_alpha(14),
-                        );
+                        ui.painter()
+                            .rect_filled(pill, corner, egui::Color32::from_white_alpha(14));
                         ui.painter().rect_stroke(
                             pill,
                             corner,

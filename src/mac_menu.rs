@@ -39,12 +39,12 @@ pub use mac_impl::*;
 
 #[cfg(target_os = "macos")]
 mod mac_impl {
-    use std::sync::Mutex;
     use objc2::rc::Retained;
     use objc2::runtime::Sel;
-    use objc2::{declare_class, mutability, sel, ClassType, DeclaredClass};
-    use objc2_app_kit::{NSEventModifierFlags, NSMenu, NSMenuItem, NSApplication};
-    use objc2_foundation::{ns_string, MainThreadMarker, NSObject, NSString};
+    use objc2::{ClassType, DeclaredClass, declare_class, mutability, sel};
+    use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem};
+    use objc2_foundation::{MainThreadMarker, NSObject, NSString, ns_string};
+    use std::sync::Mutex;
 
     use super::MenuCommand;
 
@@ -194,12 +194,7 @@ mod mac_impl {
         target: Option<&NSObject>,
     ) -> Retained<NSMenuItem> {
         let item = unsafe {
-            NSMenuItem::initWithTitle_action_keyEquivalent(
-                mtm.alloc(),
-                title,
-                action,
-                key,
-            )
+            NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), title, action, key)
         };
         if let Some(masks) = masks {
             item.setKeyEquivalentModifierMask(masks);
@@ -215,32 +210,33 @@ mod mac_impl {
         title: &NSString,
     ) -> (Retained<NSMenuItem>, Retained<NSMenu>) {
         let container_item = unsafe {
-            NSMenuItem::initWithTitle_action_keyEquivalent(
-                mtm.alloc(),
-                title,
-                None,
-                ns_string!(""),
-            )
+            NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), title, None, ns_string!(""))
         };
         let menu = unsafe { NSMenu::initWithTitle(mtm.alloc(), title) };
-        unsafe { menu.setAutoenablesItems(false); }
+        unsafe {
+            menu.setAutoenablesItems(false);
+        }
         container_item.setSubmenu(Some(&menu));
         (container_item, menu)
     }
 
     pub fn init() {
-        let Some(mtm) = MainThreadMarker::new() else { return };
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
         let app = NSApplication::sharedApplication(mtm);
-        let Some(menubar) = (unsafe { app.mainMenu() }) else { return };
+        let Some(menubar) = (unsafe { app.mainMenu() }) else {
+            return;
+        };
 
-        static INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        static INITIALIZED: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
         if INITIALIZED.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
 
-        let handler: Retained<SnoopMenuHandler> = unsafe {
-            objc2::msg_send_id![mtm.alloc::<SnoopMenuHandler>(), init]
-        };
+        let handler: Retained<SnoopMenuHandler> =
+            unsafe { objc2::msg_send_id![mtm.alloc::<SnoopMenuHandler>(), init] };
         let target: &NSObject = &handler;
 
         // 1. Settings item in app menu (first menu)
@@ -289,7 +285,10 @@ mod mac_impl {
             ns_string!("Redo"),
             Some(sel!(redo:)),
             ns_string!("Z"),
-            Some(NSEventModifierFlags::NSEventModifierFlagCommand | NSEventModifierFlags::NSEventModifierFlagShift),
+            Some(
+                NSEventModifierFlags::NSEventModifierFlagCommand
+                    | NSEventModifierFlags::NSEventModifierFlagShift,
+            ),
             None,
         ));
         edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -478,7 +477,10 @@ mod mac_impl {
             ns_string!("Toggle Full Screen"),
             Some(sel!(toggleFullScreen:)),
             ns_string!("f"),
-            Some(NSEventModifierFlags::NSEventModifierFlagControl | NSEventModifierFlags::NSEventModifierFlagCommand),
+            Some(
+                NSEventModifierFlags::NSEventModifierFlagControl
+                    | NSEventModifierFlags::NSEventModifierFlagCommand,
+            ),
             None,
         ));
         menubar.addItem(&view_item);

@@ -13,7 +13,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let palette = app.palette;
     let frame = Frame::new()
         .fill(palette.overlay)
-        .stroke(Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 60)))
+        .stroke(Stroke::new(
+            1.0,
+            egui::Color32::from_rgba_unmultiplied(0x95, 0x80, 0xff, 60),
+        ))
         .corner_radius(CornerRadius::same(16))
         .inner_margin(Margin::same(24))
         .shadow(egui::epaint::Shadow {
