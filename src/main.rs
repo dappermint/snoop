@@ -220,6 +220,7 @@ fn native_options(fullscreen: bool) -> eframe::NativeOptions {
     #[cfg(target_os = "macos")]
     {
         viewport = viewport
+            .with_icon(egui::IconData::default())
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)
             .with_title_shown(false);
