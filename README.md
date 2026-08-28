@@ -59,6 +59,12 @@ packaging/macos/bundle.sh target/release/snoop Snoop.app 0.1.6
 
 the bundle is ad-hoc signed by default. set `CODESIGN_IDENTITY` to a developer id to sign it for distribution.
 
+titles in a script inter does not cover (chinese, japanese, korean, arabic,
+hebrew, thai, the indic scripts and a dozen more) are drawn with a face
+borrowed from the system, nothing is bundled. macos ships faces for the
+common ones. on linux install the matching noto families, for example
+`noto-fonts` and `noto-fonts-cjk`, or those titles stay empty boxes.
+
 to run with sample demo data (no spotify login needed):
 
 ```bash
