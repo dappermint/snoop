@@ -37,10 +37,6 @@ const PLAYBACK_HOLD: Duration = Duration::from_secs(6);
 /// A second look after a command, so the button settles quickly rather than
 /// waiting for the ordinary poll.
 const REMOTE_RECHECK: Duration = Duration::from_millis(1200);
-/// The shortest gap between volume commands sent from a slider still under
-/// the pointer. Every one of them reaches librespot, which rewrites its
-/// cached volume file, so a drag must not run at the frame rate.
-const VOLUME_DRAG_INTERVAL: Duration = Duration::from_millis(80);
 const CONTAINS_BATCH: usize = 50;
 
 pub struct RemoteSnapshot {
@@ -193,7 +189,6 @@ pub struct App {
     /// every second, so without this the slider springs back to whatever the
     /// engine last knew.
     pending_local_volume: Option<(u16, Instant)>,
-    last_volume_command: Option<Instant>,
     optimistic_playing: Option<(bool, Instant)>,
     last_now_playing_uri: Option<String>,
     pub playlist_busy: bool,
@@ -293,7 +288,6 @@ impl App {
             pending_remote_position: None,
             pending_remote_volume: None,
             pending_local_volume: None,
-            last_volume_command: None,
             optimistic_playing: None,
             last_now_playing_uri: None,
             playlist_busy: false,
@@ -2048,14 +2042,15 @@ impl App {
         }
     }
 
-    fn set_volume(&mut self, percent: u8) {
+    /// `settle` is false while the slider is still moving: the level is heard
+    /// at once, and Spotify is told where it ended up on release.
+    fn set_volume(&mut self, percent: u8, settle: bool) {
         let percent = percent.min(100);
         match self.target() {
             Target::Local => {
                 let volume = percent_to_volume(percent);
                 self.local.volume = volume;
                 self.pending_local_volume = Some((volume, Instant::now()));
-                self.last_volume_command = Some(Instant::now());
                 // The engine only echoes `VolumeChanged` back while this
                 // device is the active Connect one, so the setting is saved
                 // here rather than waiting for a snapshot that may never come.
@@ -2063,8 +2058,13 @@ impl App {
                     self.settings.volume = volume;
                     self.settings_dirty = true;
                 }
-                self.backend.player(PlayerCommand::Volume(volume));
+                self.backend.player(if settle {
+                    PlayerCommand::Volume(volume)
+                } else {
+                    PlayerCommand::VolumePreview(volume)
+                });
             }
+            Target::Remote(_) if !settle => {}
             Target::Remote(device_id) => {
                 self.pending_remote_volume = Some((percent, Instant::now()));
                 self.backend.api(ApiRequest::Remote {
@@ -2309,30 +2309,19 @@ impl App {
             }
             Action::SetVolume(percent) => {
                 self.volume_before_mute = None;
-                self.set_volume(percent);
+                self.set_volume(percent, true);
             }
-            Action::PreviewVolume(percent) => {
-                // Remote volume is a Web API call per change, so a drag only
-                // moves the handle there and commits on release.
-                if matches!(self.target(), Target::Local)
-                    && self
-                        .last_volume_command
-                        .is_none_or(|at| at.elapsed() >= VOLUME_DRAG_INTERVAL)
-                {
-                    self.volume_before_mute = None;
-                    self.set_volume(percent);
-                }
-            }
+            Action::PreviewVolume(percent) => self.set_volume(percent, false),
             Action::VolumeBy(delta) => {
                 if let Some(now) = self.now_playing() {
                     let next =
                         (i16::from(now.volume_percent) + i16::from(delta)).clamp(0, 100) as u8;
                     self.volume_before_mute = None;
-                    self.set_volume(next);
+                    self.set_volume(next, true);
                 } else if self.is_connected() {
                     let current = volume_to_percent(self.local.volume);
                     let next = (i16::from(current) + i16::from(delta)).clamp(0, 100) as u8;
-                    self.set_volume(next);
+                    self.set_volume(next, true);
                 }
             }
             Action::ToggleMute => {
@@ -2342,10 +2331,10 @@ impl App {
                     .unwrap_or_else(|| volume_to_percent(self.local.volume));
                 if current == 0 {
                     let restore = self.volume_before_mute.take().unwrap_or(50).max(5);
-                    self.set_volume(restore);
+                    self.set_volume(restore, true);
                 } else {
                     self.volume_before_mute = Some(current);
-                    self.set_volume(0);
+                    self.set_volume(0, true);
                 }
             }
             Action::ToggleShuffle => {
@@ -2819,7 +2808,7 @@ mod tests {
     #[test]
     fn a_volume_set_here_is_saved_immediately() {
         let mut app = headless_app();
-        app.set_volume(80);
+        app.set_volume(80, true);
         assert_eq!(volume_to_percent(app.settings.volume), 80);
         assert!(app.settings_dirty);
     }
@@ -2827,7 +2816,7 @@ mod tests {
     #[test]
     fn a_stale_engine_snapshot_does_not_pull_the_volume_back() {
         let mut app = headless_app();
-        app.set_volume(80);
+        app.set_volume(80, true);
 
         // The engine reports `VolumeChanged` asynchronously, so its next
         // snapshot still carries the volume from before the change.
