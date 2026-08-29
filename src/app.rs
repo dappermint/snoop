@@ -145,7 +145,7 @@ pub struct App {
     /// Sample data is loaded and nothing is asked of Spotify.
     pub offline: bool,
     pub palette: Palette,
-    applied_dark: Option<bool>,
+    applied_theme: Option<(bool, crate::themes::Theme)>,
 
     pub auth: AuthStatus,
     pub user: Option<User>,
@@ -358,8 +358,8 @@ impl App {
             control_devices: None,
             control_devices_stale: true,
             offline: false,
-            palette: Palette::dark(),
-            applied_dark: None,
+            palette: crate::themes::Theme::default().dark(),
+            applied_theme: None,
             auth: AuthStatus::Starting,
             user: None,
             local_device_id: None,
@@ -476,7 +476,7 @@ impl App {
             ThemeChoice::Light => egui::ThemePreference::Light,
             ThemeChoice::System => egui::ThemePreference::System,
         });
-        self.applied_dark = None;
+        self.applied_theme = None;
         self.window_hidden = false;
         self.hide_intent = false;
         self.wants_show = false;
@@ -1245,14 +1245,11 @@ impl App {
 
     fn apply_theme(&mut self, ctx: &egui::Context) {
         let dark = ctx.theme() == egui::Theme::Dark;
-        if self.applied_dark != Some(dark) {
-            self.palette = if dark {
-                Palette::dark()
-            } else {
-                Palette::light()
-            };
+        let scheme = self.settings.color_theme;
+        if self.applied_theme != Some((dark, scheme)) {
+            self.palette = if dark { scheme.dark() } else { scheme.light() };
             theme::apply(ctx, &self.palette);
-            self.applied_dark = Some(dark);
+            self.applied_theme = Some((dark, scheme));
             self.accents.clear();
             self.accent_pending.clear();
         }
@@ -1427,6 +1424,21 @@ impl App {
             return crate::single_instance::NOTHING_PLAYING.to_owned();
         };
         let state = if now.playing { "playing" } else { "paused" };
+        // Not every track has been looked up yet; say so rather than
+        // claiming an unsaved track the client would draw as a hollow heart
+        // and then watch fill in a moment later.
+        let saved = match self.is_saved(&now.uri) {
+            Some(true) => "yes",
+            Some(false) => "no",
+            None => "unknown",
+        };
+        // Local playback is this computer, which Spotify has not named in
+        // the snapshot because it is not a remote device.
+        let device = match (&now.device_name, now.local) {
+            (Some(name), _) => name.as_str(),
+            (None, true) => self.settings.device_name.as_str(),
+            (None, false) => "",
+        };
         // Tabs separate the fields, so a tab inside one would shift the rest.
         // This runs every frame, and titles almost never contain one, so the
         // usual answer borrows rather than allocating a copy per field.
@@ -1437,7 +1449,7 @@ impl App {
             }
         }
         format!(
-            "{state}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "{state}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{saved}\t{}",
             clean(&now.title),
             clean(&now.subtitle),
             clean(&now.album_name),
@@ -1446,6 +1458,8 @@ impl App {
             now.volume_percent,
             if now.shuffle { "on" } else { "off" },
             now.repeat.api_name(),
+            clean(now.art_url.as_deref().unwrap_or_default()),
+            clean(device),
         )
     }
 
@@ -4208,6 +4222,13 @@ mod tests {
                 "35",
                 "on",
                 "track",
+                // The three a Stream Deck key needs, appended.
+                "https://i.scdn.co/image/abc",
+                // Not signed in, so nobody has said whether this is saved.
+                "unknown",
+                // Local playback is this computer, which Spotify has not
+                // named because it is not a remote device.
+                "Snoop",
             ]
         );
         // No devices seen yet is an empty array, not an empty string, so a

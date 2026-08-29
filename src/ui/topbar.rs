@@ -312,7 +312,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     if response
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .on_hover_text(format!(
-                            "Fastpotify {} is out. Opens the download page.",
+                            "Snoop {} is out. Opens the download page.",
                             update.version
                         ))
                         .clicked()

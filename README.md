@@ -8,7 +8,7 @@ a mac-first fork of [fastpotify](https://github.com/crmne/fastpotify): native, l
 
 - **unified transparent titlebar:** fullsize content view with native traffic light controls cleanly integrated into the sidebar header
 - **now playing everywhere:** media keys, control centre, the lock screen, and the airpods pinch all drive snoop, cover art included
-- **dracula pro visual language:** default palette tuned to dracula pro with high-contrast accents and matching app icon
+- **dracula pro visual language:** default palette tuned to dracula pro with high-contrast accents and matching app icon. `dracula` and upstream `spotify` schemes are in settings too
 - **macos shortcuts:** native `⌘` keybindings everywhere, including `⌘[` / `⌘]` for page history navigation
 - **zero electron bloat:** starts in under a second and stays tiny in memory while playing gapless 320 kbps audio
 - **nix flake + direnv:** reproducible dev environment out of the box
@@ -57,8 +57,8 @@ cargo run --release
 to build a real `Snoop.app` (macos routes media keys, control centre, and the lock screen only to bundled apps, so `cargo run` does not get them):
 
 ```bash
-`cargo build --release
-packaging/macos/bundle.sh target/release/snoop Snoop.app 0.3.0`
+cargo build --release
+packaging/macos/bundle.sh target/release/snoop Snoop.app 0.3.0
 ```
 
 the bundle is ad-hoc signed by default. set `CODESIGN_IDENTITY` to a developer id to sign it for distribution.

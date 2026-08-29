@@ -1,26 +1,26 @@
 ---
 title: Settings & Files
-description: Where Fastpotify keeps configuration, credentials, and caches, and what is safe to delete.
+description: Where Snoop keeps configuration, credentials, and caches, and what is safe to delete.
 nav_order: 0
 ---
 
 ## Where things live
 
-Fastpotify follows each platform's conventions. On Linux:
+Snoop follows each platform's conventions. On Linux:
 
 | What | Where | Safe to delete? |
 | --- | --- | --- |
-| Settings | `~/.config/fastpotify/settings.json` | Yes, you lose preferences |
-| Shared Web API sign-in | `~/.local/state/fastpotify/shared_web_api_token.json` | Yes, you sign in again |
-| Personal Web API sign-in | `~/.local/state/fastpotify/personal_web_api_token.json` | Yes, personal acceleration is removed |
-| Playback credential | `~/.local/state/fastpotify/credentials/` | Yes, you approve playback again |
-| Last session | `~/.local/state/fastpotify/session.json` | Yes |
-| Audio cache | `~/.cache/fastpotify/audio/` | Always |
-| Artwork cache | `~/.cache/fastpotify/art/` | Always |
-| Lyrics cache | `~/.cache/fastpotify/lyrics/` | Always |
-| Last run's log | `~/.local/state/fastpotify/snoop.log` | Always |
-| Account-scoped playlist cache | `~/.cache/fastpotify/playlists/<account-id>/` | Always |
-| Crash log | `~/.local/state/fastpotify/panic.log` | Always |
+| Settings | `~/.config/snoop/settings.json` | Yes, you lose preferences |
+| Shared Web API sign-in | `~/.local/state/snoop/shared_web_api_token.json` | Yes, you sign in again |
+| Personal Web API sign-in | `~/.local/state/snoop/personal_web_api_token.json` | Yes, personal acceleration is removed |
+| Playback credential | `~/.local/state/snoop/credentials/` | Yes, you approve playback again |
+| Last session | `~/.local/state/snoop/session.json` | Yes |
+| Audio cache | `~/.cache/snoop/audio/` | Always |
+| Artwork cache | `~/.cache/snoop/art/` | Always |
+| Lyrics cache | `~/.cache/snoop/lyrics/` | Always |
+| Last run's log | `~/.local/state/snoop/snoop.log` | Always |
+| Account-scoped playlist cache | `~/.cache/snoop/playlists/<account-id>/` | Always |
+| Crash log | `~/.local/state/snoop/panic.log` | Always |
 
 Clearing caches never signs you out; credentials live in *state*, not
 *cache*. Web API token files are written with owner-only permissions.
@@ -28,11 +28,11 @@ Signing out from Settings deletes both Web API grants and the separate
 playback credential.
 
 On macOS, settings, state, and the logs are in
-`~/Library/Application Support/me.paolino.fastpotify` and the caches in
-`~/Library/Caches/me.paolino.fastpotify`. On Windows, settings are in
-`%APPDATA%\paolino\fastpotify\config`, state and the logs in
-`%LOCALAPPDATA%\paolino\fastpotify\data`, and the caches in
-`%LOCALAPPDATA%\paolino\fastpotify\cache`.
+`~/Library/Application Support/com.dappermint.snoop` and the caches in
+`~/Library/Caches/com.dappermint.snoop`. On Windows, settings are in
+`%APPDATA%\dappermint\snoop\config`, state and the logs in
+`%LOCALAPPDATA%\dappermint\snoop\data`, and the caches in
+`%LOCALAPPDATA%\dappermint\snoop\cache`.
 
 ## settings.json
 
@@ -41,7 +41,7 @@ main fields are:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `device_name` | `Fastpotify` | Name on Spotify Connect |
+| `device_name` | `Snoop` | Name on Spotify Connect |
 | `bitrate` | `320` | 96, 160, or 320 kbps |
 | `normalisation` | `false` | Volume normalisation |
 | `autoplay` | `true` | Keep playing similar music at the end |
@@ -49,6 +49,7 @@ main fields are:
 | `audio_backend` | platform | `pulseaudio` or `rodio` on Linux |
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
 | `theme` | `dark` | `dark`, `light`, or `system` |
+| `color_theme` | `dracula-pro` | `dracula-pro`, `dracula`, or `spotify` |
 | `accent_from_art` | `true` | Tint pages with album art |
 | `keep_playing_in_background` | `true` | Close to tray |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
@@ -57,7 +58,7 @@ main fields are:
 ## Command line
 
 ```
-fastpotify [OPTIONS]
+snoop [OPTIONS]
 
   --device-name <NAME>  Spotify Connect name for this session
   -v, --verbose         More logs from librespot and the API client
@@ -65,7 +66,7 @@ fastpotify [OPTIONS]
 
 `snoop.log` in the state directory is what to attach to a bug report:
 it contains the last run's output, including the additional lines printed by
-`fastpotify -v`. If the app crashed, attach `panic.log` from the same directory
+`snoop -v`. If the app crashed, attach `panic.log` from the same directory
 as well.
 
 ## Demo mode

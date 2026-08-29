@@ -73,7 +73,7 @@ fn main() -> anyhow::Result<()> {
 fn devices() -> anyhow::Result<Vec<String>> {
     let home = std::env::var("HOME")?;
     let token: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!(
-        "{home}/.local/state/fastpotify/web_api_token.json"
+        "{home}/.local/state/snoop/web_api_token.json"
     ))?)?;
     let http = reqwest::blocking::Client::new();
     let body: serde_json::Value = http

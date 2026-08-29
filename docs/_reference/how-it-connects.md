@@ -1,12 +1,12 @@
 ---
 title: How It Connects
-description: Fastpotify's independent Spotify grants, what is stored, and how API traffic is routed.
+description: Snoop's independent Spotify grants, what is stored, and how API traffic is routed.
 nav_order: 1
 ---
 
 ## Independent grants, once each
 
-Fastpotify uses independent credentials for Web API coverage, optional
+Snoop uses independent credentials for Web API coverage, optional
 personal acceleration, and local playback:
 
 1. **The shared Web API app** provides broad catalog and playlist coverage.
@@ -37,7 +37,7 @@ shows how to add one.
 - Downloaded audio and artwork, in the cache directory, within the budget
   you set.
 - Lyrics, in the cache directory, for a month.
-- Fastpotify has no telemetry, analytics, or hosted service. Besides Spotify
+- Snoop has no telemetry, analytics, or hosted service. Besides Spotify
   and its album art CDN, the app contacts
   [lrclib.net](https://lrclib.net) while the lyrics panel is open and
   Spotify itself has no words for the track, sending the track's artist,
@@ -47,7 +47,7 @@ shows how to add one.
 
 ## When Spotify pushes back
 
-Each Web API session has its own concurrency and cooldown. Fastpotify honours
+Each Web API session has its own concurrency and cooldown. Snoop honours
 `Retry-After` without pausing the other session and treats Development Mode
 quota exhaustion separately from an ordinary burst limit. A logical request
 is routed once before dispatch and is never retried through the other app.
@@ -59,15 +59,15 @@ account. Anything waiting to be given one, which is the normal state for a
 self-hosted librespot or spotifyd, is invisible to the Web API.
 
 Those receivers announce themselves over mDNS as `_spotify-connect._tcp` and
-answer a small HTTP interface. Fastpotify asks a receiver to describe itself,
+answer a small HTTP interface. Snoop asks a receiver to describe itself,
 then hands over the reusable credential librespot already stores, wrapped
 twice: once in a key derived from the receiver's own device id, and again in
 a key both sides derive from a Diffie-Hellman exchange with the public key
 that receiver just published. The encrypted value is specific to that
-receiver and exchange. Fastpotify does not write another copy of the
+receiver and exchange. Snoop does not write another copy of the
 credential.
 
-The receiver then signs in and appears in Spotify's device list. Fastpotify
+The receiver then signs in and appears in Spotify's device list. Snoop
 uses the Web API for subsequent control requests.
 
 ## The engine

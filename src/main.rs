@@ -240,7 +240,7 @@ fn format_now_playing(snapshot: &str) -> String {
 }
 
 /// The `devices` snapshot as one line per device, the active one marked.
-/// The id comes first because `fastpotify transfer` is what it is for.
+/// The id comes first because `snoop transfer` is what it is for.
 #[cfg(not(target_os = "linux"))]
 fn format_devices(snapshot: &str) -> String {
     let Ok(devices) = serde_json::from_str::<Vec<serde_json::Value>>(snapshot) else {

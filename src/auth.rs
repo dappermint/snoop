@@ -539,7 +539,7 @@ mod tests {
     #[test]
     fn legacy_tokens_move_to_the_matching_session() {
         let dir = std::env::temp_dir().join(format!(
-            "fastpotify-token-migration-{}-{}",
+            "snoop-token-migration-{}-{}",
             std::process::id(),
             now_secs()
         ));

@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Install Fastpotify, sign in through your browser, and enable playback on this computer.
+description: Install Snoop, sign in through your browser, and enable playback on this computer.
 nav_order: 2
 ---
 
@@ -12,8 +12,8 @@ Windows, and Linux.
 Or build from source with [Rust](https://rustup.rs) 1.95 or newer:
 
 ```sh
-git clone https://github.com/crmne/fastpotify
-cd fastpotify
+git clone https://github.com/dappermint/snoop
+cd snoop
 cargo install --path .
 ```
 
@@ -36,17 +36,17 @@ Korean, Arabic, Hebrew, Thai, and Indic scripts. macOS and Windows include fonts
 
 ![Japanese, Chinese, and Korean titles in a playlist](/assets/images/scripts.png)
 
-A desktop entry ships in `packaging/applications/fastpotify.desktop`.
+A desktop entry ships in `packaging/applications/snoop.desktop`.
 
 ## Sign in
 
 Start the app and press **Sign in with Spotify**. Your browser opens
-Spotify's own consent page; your password never touches Fastpotify. When
+Spotify's own consent page; your password never touches Snoop. When
 Spotify redirects back, your library loads and you can search, browse, and
 control your other devices immediately.
 
-Fastpotify stores a refresh token in your platform's state directory
-(`~/.local/state/fastpotify` on Linux). You normally need the browser only
+Snoop stores a refresh token in your platform's state directory
+(`~/.local/state/snoop` on Linux). You normally need the browser only
 once per machine.
 
 ## Enable playback on this computer
@@ -55,16 +55,16 @@ Playing music *on this machine* requires a second browser approval because
 Spotify treats streaming as a separate grant
 ([why](/how-it-connects/)). Take it from the device menu (the speaker icon
 in the player bar, then **Play here, set up once**) or from Settings.
-It needs Spotify Premium. Fastpotify saves the resulting playback credential
+It needs Spotify Premium. Snoop saves the resulting playback credential
 for later sessions.
 
 After that, this computer shows up as a Spotify Connect device named
-**Fastpotify** (rename it in Settings), visible from your phone like any
+**Snoop** (rename it in Settings), visible from your phone like any
 speaker.
 
 ## Basics
 
-- **Closing the window does not stop the music.** Fastpotify keeps playing
+- **Closing the window does not stop the music.** Snoop keeps playing
   from the system tray; reopen it from the tray icon and quit from the tray
   menu or Ctrl+Q. Settings can turn this off.
 - **Play requests show their progress.** A pressed play button spins until

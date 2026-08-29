@@ -1,10 +1,10 @@
 ---
 layout: home
-title: Fastpotify
+title: Snoop
 description: A fast, native Spotify client for Linux, macOS, and Windows, written in Rust.
 permalink: /
 hero:
-  name: Fastpotify
+  name: Snoop
   text: Spotify, native and fast
   tagline: A lightweight Spotify client with local playback, library access, and Spotify Connect controls for Linux, macOS, and Windows.
   actions:
@@ -12,14 +12,14 @@ hero:
       text: Download
       link: /download/
     - theme: alt
-      text: What is Fastpotify?
-      link: /what-is-fastpotify/
+      text: What is Snoop?
+      link: /what-is-snoop/
     - theme: alt
       text: GitHub
-      link: https://github.com/crmne/fastpotify
+      link: https://github.com/dappermint/snoop
   image:
     src: /screenshot.png
-    alt: "Fastpotify showing the Late night focus playlist with the queue panel open, a track playing, and the library in the sidebar"
+    alt: "Snoop showing the Late night focus playlist with the queue panel open, a track playing, and the library in the sidebar"
     width: 1894
     height: 1037
 
@@ -42,7 +42,7 @@ features:
   - icon: 🔓
     title: Open source
     details: MIT-licensed Rust built with egui and librespot. The connection and credential model is documented in full.
-    link: https://github.com/crmne/fastpotify
+    link: https://github.com/dappermint/snoop
     link_text: Read the source
 ---
 

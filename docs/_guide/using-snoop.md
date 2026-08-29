@@ -75,7 +75,7 @@ A receiver running librespot or spotifyd, and some hardware speakers, appears
 in Spotify's device list only after it has received an account credential.
 Before then, the Web API cannot see it.
 
-Fastpotify searches the local network when you open the device picker. It
+Snoop searches the local network when you open the device picker. It
 lists discovered receivers as *on your network*. Choose one to send it the
 stored playback credential, encrypted so that only that receiver can read it.
 Once connected, it appears as an ordinary Spotify Connect device and playback
@@ -91,7 +91,7 @@ The microphone button in the player bar (or `L`) opens lyrics for the playing
 track beside the page. For timed lyrics, the current line is
 highlighted and the panel scrolls automatically; click a line to seek to it.
 Manual scrolling pauses automatic following, and **Follow** resumes it.
-Fastpotify requests lyrics from Spotify when local playback is authorized.
+Snoop requests lyrics from Spotify when local playback is authorized.
 Otherwise, or when Spotify has no lyrics for a track, it uses
 [LRCLIB](https://lrclib.net), an open database that needs no account. Podcasts
 and tracks without a transcription show an unavailable message.
@@ -100,7 +100,7 @@ and tracks without a transcription show an unavailable message.
 
 ## The tray
 
-Closing the window keeps the music playing: Fastpotify stays in the system
+Closing the window keeps the music playing: Snoop stays in the system
 tray with play, pause, skip, and quit in its menu, and clicking the icon
 brings the window back. On Linux it is a standard status-notifier item, so
 it works in any bar that shows tray icons, and MPRIS keeps `playerctl`,
@@ -108,7 +108,7 @@ media keys, and your desktop's players widget working the whole time.
 
 ## One window, one instance
 
-Starting Fastpotify while it is already running brings the existing window
+Starting Snoop while it is already running brings the existing window
 forward instead of opening a second instance. This avoids duplicate Spotify
 Connect devices and conflicting media-key handlers.
 

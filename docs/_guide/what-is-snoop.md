@@ -1,26 +1,26 @@
 ---
-title: What is Fastpotify?
-description: Why Fastpotify exists, what it supports, and its current limitations.
+title: What is Snoop?
+description: Why Snoop exists, what it supports, and its current limitations.
 nav_order: 0
 ---
 
-## Why Fastpotify
+## Why Snoop
 
 The official Spotify client includes a browser engine and can use a
 significant amount of memory. Most lightweight alternatives use a terminal
-interface. Fastpotify provides a small graphical client instead.
+interface. Snoop provides a small graphical client instead.
 
-Fastpotify is a native Spotify client written in Rust with
+Snoop is a native Spotify client written in Rust with
 [egui](https://github.com/emilk/egui), playing music through
 [librespot](https://github.com/librespot-org/librespot). It is a single native
 binary with no embedded browser engine. It starts in well under a second and
 uses a layout similar to Spotify's desktop client.
 
-![Fastpotify showing a playlist with the queue open and a track playing](/screenshot.png)
+![Snoop showing a playlist with the queue open and a track playing](/screenshot.png)
 
 ## What it does
 
-- **Plays music on this computer.** Fastpotify is a Spotify Connect device:
+- **Plays music on this computer.** Snoop is a Spotify Connect device:
   pick it from your phone, or press play here. Gapless, up to 320 kbps, with
   optional volume normalisation and an on-disk audio cache.
 - **Controls other devices.** Move playback to a speaker, a phone, or
@@ -40,7 +40,7 @@ uses a layout similar to Spotify's desktop client.
 
 ## What it does not do
 
-Fastpotify deliberately has a limited scope:
+Snoop deliberately has a limited scope:
 
 - **Playing on this computer needs Spotify Premium**, as with every
   librespot-based client. Browsing, search, and remote control work on any
@@ -48,37 +48,37 @@ Fastpotify deliberately has a limited scope:
 - Initial setup has two sign-ins because Spotify grants Web API and streaming
   access separately. [How it connects](/how-it-connects/) explains why.
 - Local playback tops out at 320 kbps. Spotify protects its lossless streams
-  with DRM that librespot does not support, and Fastpotify will not circumvent
+  with DRM that librespot does not support, and Snoop will not circumvent
   it. This can change if [lawful support lands upstream](https://github.com/librespot-org/librespot/issues/1583).
 - No video podcasts or social features.
 - Playlist reordering is a menu action, not drag-and-drop.
-- Fastpotify is an **unofficial** client built on Spotify's public Web API
+- Snoop is an **unofficial** client built on Spotify's public Web API
   and librespot. Spotify changes these from time to time; when they do,
   features can break until the client catches up.
 
-If something misbehaves, [an issue](https://github.com/crmne/fastpotify/issues)
-should include the output of `fastpotify -v`, what happened, and what you
+If something misbehaves, [an issue](https://github.com/dappermint/snoop/issues)
+should include the output of `snoop -v`, what happened, and what you
 expected.
 
 ## Account safety
 
-We are not aware of a Spotify account being suspended for using Fastpotify
+We are not aware of a Spotify account being suspended for using Snoop
 or another librespot player with Premium. Sign-in happens on Spotify's own
 pages, audio uses the quality included with Premium, DRM stays intact, and
-Fastpotify does not rip tracks or block ads.
+Snoop does not rip tracks or block ads.
 
 Reported suspensions usually involve modded apps that remove ads from free
-accounts, track ripping, or stream manipulation. Fastpotify does none of
+accounts, track ripping, or stream manipulation. Snoop does none of
 those things, and its contribution rules prohibit them.
 
 ## Prior art
 
-Fastpotify uses [librespot](https://github.com/librespot-org/librespot) for
+Snoop uses [librespot](https://github.com/librespot-org/librespot) for
 Spotify playback. [spotify-tui](https://github.com/Rigellute/spotify-tui),
 [spotify-player](https://github.com/aome510/spotify-player), and
 [ncspot](https://github.com/hrkfdn/ncspot) demonstrated the scope possible in
 a small client. [Omarchy Spotify](https://github.com/stappmus/Omarchy-Spotify)
 provided an example of a full graphical Spotify client for Linux.
 
-Fastpotify is an independent project, not affiliated with or endorsed by
+Snoop is an independent project, not affiliated with or endorsed by
 Spotify AB. Spotify is a trademark of Spotify AB.

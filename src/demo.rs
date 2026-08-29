@@ -795,8 +795,7 @@ mod tests {
     /// row lands in the same add-to-playlist plumbing the row menu uses.
     #[test]
     fn dropping_a_song_on_a_sidebar_playlist_adds_it() {
-        let root =
-            std::env::temp_dir().join(format!("fastpotify-drag-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("snoop-drag-test-{}", std::process::id()));
         let dirs = AppDirs {
             config: root.join("config"),
             state: root.join("state"),
@@ -865,8 +864,7 @@ mod tests {
     /// its automatic order.
     #[test]
     fn dragging_within_the_pinned_block_reorders_it() {
-        let root =
-            std::env::temp_dir().join(format!("fastpotify-reorder-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("snoop-reorder-test-{}", std::process::id()));
         let dirs = AppDirs {
             config: root.join("config"),
             state: root.join("state"),
@@ -943,8 +941,7 @@ mod tests {
     /// with the moved row in its new place.
     #[test]
     fn dropping_between_unpinned_playlists_creates_the_custom_order() {
-        let root =
-            std::env::temp_dir().join(format!("fastpotify-unpinned-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("snoop-unpinned-test-{}", std::process::id()));
         let dirs = AppDirs {
             config: root.join("config"),
             state: root.join("state"),
@@ -1018,8 +1015,7 @@ mod tests {
     /// before asking the server.
     #[test]
     fn dragging_a_row_within_a_playlist_reorders_it() {
-        let root =
-            std::env::temp_dir().join(format!("fastpotify-move-test-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("snoop-move-test-{}", std::process::id()));
         let dirs = AppDirs {
             config: root.join("config"),
             state: root.join("state"),

@@ -551,10 +551,7 @@ mod tests {
             parse("snoop:nowplaying"),
             Some(Request::NowPlaying)
         ));
-        assert!(matches!(
-            parse("snoop:devices"),
-            Some(Request::Devices)
-        ));
+        assert!(matches!(parse("snoop:devices"), Some(Request::Devices)));
     }
 
     #[test]

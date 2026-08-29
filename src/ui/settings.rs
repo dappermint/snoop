@@ -97,7 +97,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Make it even faster",
-            "Add your own Spotify Development Mode app as optional acceleration. Fastpotify keeps the shared app for catalog coverage and external playlists.",
+            "Add your own Spotify Development Mode app as optional acceleration. Snoop keeps the shared app for catalog coverage and external playlists.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)
@@ -128,7 +128,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             |ui| {
                 if theme::pill_button(ui, &palette, "Show me how", false).clicked() {
                     app.actions.push(Action::OpenUrl(
-                        "https://fastpotify.rocks/make-it-even-faster/".into(),
+                        "https://dappermint.github.io/snoop/make-it-even-faster/".into(),
                     ));
                 }
             },
@@ -441,6 +441,26 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         && app.settings.theme != choice
                     {
                         app.settings.theme = choice;
+                        changed = true;
+                    }
+                }
+            });
+        });
+        widgets::setting_row(ui, &palette, "Colours", "", |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                for scheme in crate::themes::Theme::ALL {
+                    if theme::soft_button(
+                        ui,
+                        &palette,
+                        None,
+                        scheme.label(),
+                        app.settings.color_theme == scheme,
+                    )
+                    .clicked()
+                        && app.settings.color_theme != scheme
+                    {
+                        app.settings.color_theme = scheme;
                         changed = true;
                     }
                 }
