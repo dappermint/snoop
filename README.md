@@ -4,6 +4,8 @@ a mac-first fork of [fastpotify](https://github.com/crmne/fastpotify): native, l
 
 ![snoop interface](docs/screenshot.png)
 
+**playing needs spotify premium.** spotify only lets premium accounts play music through another app, here or on any other device. with a free account snoop browses your library fine but cannot play it, and says so once at sign-in.
+
 ## what makes it mac-first
 
 - **unified transparent titlebar:** fullsize content view with native traffic light controls cleanly integrated into the sidebar header
