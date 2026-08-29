@@ -1,8 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Contribution and project scope
-    url: https://github.com/crmne/fastpotify/blob/main/CONTRIBUTING.md
+    url: https://github.com/dappermint/snoop/blob/main/CONTRIBUTING.md
     about: Check product boundaries and contribution requirements before opening an issue or pull request.
   - name: Documentation
-    url: https://fastpotify.rocks
-    about: Install steps, settings, and where Fastpotify keeps its files and logs.
+    url: https://dappermint.github.io/snoop/
+    about: Install steps, settings, and where Snoop keeps its files and logs.
+  - name: Upstream Fastpotify
+    url: https://github.com/crmne/fastpotify/issues
+    about: Snoop is a mac-first fork. Report anything that also happens in upstream Fastpotify there.

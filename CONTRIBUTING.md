@@ -1,6 +1,6 @@
-# Contributing to Fastpotify
+# Contributing to Snoop
 
-Fastpotify is deliberately small, native, and focused. A contribution is a
+Snoop is deliberately small, native, and focused. A contribution is a
 good fit when it makes the Spotify desktop experience better without turning
 the project into a browser, a collection of fallbacks, or a second backend.
 
@@ -19,13 +19,13 @@ product direction.
 Some boundaries come from Spotify or from upstream libraries:
 
 - Local playback requires Spotify Premium because librespot requires it.
-- Spotify Lossless is not available through librespot. Fastpotify will
+- Spotify Lossless is not available through librespot. Snoop will
   reconsider it if librespot gains lawful upstream support; proposals that
   depend on bypassing Spotify's DRM are out of scope.
 - Spotify tracks must come from Spotify. Substituting audio from YouTube,
   Piped, `yt-dlp`, or another catalogue is out of scope.
-- Fastpotify will not embed a browser engine, add telemetry, or introduce a
-  Fastpotify-operated service.
+- Snoop will not embed a browser engine, add telemetry, or introduce a
+  Snoop-operated service.
 
 Issues that are duplicates, outside these boundaries, or contain no actionable
 problem may be closed with a short explanation. That is scope management, not
@@ -53,7 +53,7 @@ a judgement on the person who opened them.
 ## Pull requests
 
 Keep each pull request to one coherent change. Explain why the change belongs
-in Fastpotify, what behaviour changed, and how you verified it. Avoid unrelated
+in Snoop, what behaviour changed, and how you verified it. Avoid unrelated
 formatting, drive-by refactors, generated prose, and large mechanical rewrites.
 
 Every pull request is held to the same standard whether it was written by a

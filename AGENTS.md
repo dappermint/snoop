@@ -1,11 +1,11 @@
-# Fastpotify agent guide
+# Snoop agent guide
 
 Follow `CONTRIBUTING.md`; it is the canonical product and contribution policy.
 These instructions add implementation constraints for coding agents.
 
 ## Product boundaries
 
-- Keep Fastpotify a small native Spotify client. Do not add a browser engine,
+- Keep Snoop a small native Spotify client. Do not add a browser engine,
   telemetry, a hosted backend, or alternate sources for Spotify audio.
 - Playback capabilities come from librespot. Do not advertise or implement a
   capability merely because its name appears in a protobuf or enum. In
@@ -52,12 +52,23 @@ A release is not the tag alone. Every one of these moves together:
   the tag so the binaries report the right version.
 - The `v*` tag, which triggers the release workflow; replace its
   generated notes with written ones.
-- `docs/_config.yml` `fastpotify_version` (the download page's links)
+- `docs/_config.yml` `snoop_version` (the download page's links)
   and `docs/_data/versions.yml` (the version dropdown: the new version
   becomes `current` and points at `/download/`, the previous one keeps a
   link to its own GitHub release).
-- The Homebrew cask in the maintainer's tap and the AUR package, both
-  from the release's `checksums.txt`.
+- The Homebrew cask in the maintainer's tap, from the release's
+  `checksums.txt`. Snoop publishes no AUR or Flatpak package.
 
 Missing any of these ships a release that lies somewhere; the dropdown
 was forgotten once already.
+
+## Staying close to upstream
+
+Snoop is a fork of [Fastpotify](https://github.com/crmne/fastpotify) and
+merges from it regularly, so every gratuitous divergence is a future merge
+conflict. Prefer changes that upstream's files do not have to notice:
+
+- Colour schemes live in `src/themes.rs`. `src/theme.rs` keeps upstream's
+  palette verbatim so a merge that adds a field does not collide with ours.
+- When upstream and Snoop want different text or behaviour, branch on a
+  Snoop-owned constant or module rather than editing upstream's line.

@@ -1,5 +1,5 @@
 name: Feature request
-description: Something Fastpotify should do.
+description: Something Snoop should do.
 labels: [enhancement]
 body:
   - type: checkboxes
@@ -14,7 +14,7 @@ body:
   - type: textarea
     id: problem
     attributes:
-      label: What problem should Fastpotify solve?
+      label: What problem should Snoop solve?
       description: Describe the workflow and pain, not only the name of a feature.
       placeholder: "When I ..., I cannot ..., so I currently have to ..."
     validations:
@@ -29,7 +29,7 @@ body:
   - type: textarea
     id: fit
     attributes:
-      label: Why does this fit Fastpotify?
+      label: Why does this fit Snoop?
       description: Explain how it preserves a small, native, cross-platform Spotify client.
     validations:
       required: true
