@@ -1,6 +1,6 @@
 //! Named colour schemes.
 //!
-//! [`Palette`](crate::theme::Palette) describes *what* a colour is used for;
+//! [`Palette`] describes *what* a colour is used for;
 //! a [`Theme`] here decides *which* colours fill it. Keeping the schemes in
 //! their own file means `theme.rs` can stay close to upstream: a merge that
 //! adds a palette field touches `theme.rs`, and each scheme below gains one
