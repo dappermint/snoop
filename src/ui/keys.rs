@@ -15,6 +15,7 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             }
         };
         key(Modifiers::COMMAND, Key::F, Action::FocusSearch);
+        key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
         key(Modifiers::COMMAND, Key::Q, Action::Quit);
         // ⌘H is Hide Application on macOS and the system menu wins it, so
@@ -32,6 +33,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         key(
             Modifiers::COMMAND,
             Key::Slash,
+            Action::ShowDialog(Dialog::Shortcuts),
+        );
+        key(
+            Modifiers::NONE,
+            Key::Questionmark,
+            Action::ShowDialog(Dialog::Shortcuts),
+        );
+        key(
+            Modifiers::SHIFT,
+            Key::Questionmark,
             Action::ShowDialog(Dialog::Shortcuts),
         );
         key(Modifiers::ALT, Key::ArrowLeft, Action::Back);
@@ -142,6 +153,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Q", "Show the queue"),
     ("L", "Show the lyrics"),
     ("Ctrl+F  or  /", "Search"),
+    ("Ctrl+B", "Show or hide the sidebar"),
     ("Alt+←  /  Alt+→", "Back or forward"),
     (
         if cfg!(target_os = "macos") {
@@ -155,6 +167,6 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+Shift+A", "Go to the playing artist"),
     ("Ctrl+Shift+B", "Go to the playing album"),
     ("Ctrl+,", "Settings"),
-    ("Ctrl+/", "Keyboard shortcuts"),
+    ("Ctrl+/ or ?", "Keyboard shortcuts"),
     ("Ctrl+Q", "Quit"),
 ];

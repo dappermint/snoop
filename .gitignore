@@ -11,3 +11,4 @@ docs/.bundle/
 .direnv/
 /*.app/
 /dist/
+.claude/

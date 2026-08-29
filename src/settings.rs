@@ -45,11 +45,15 @@ pub struct Settings {
     pub accent_from_art: bool,
     /// Last local volume, 0..=65535.
     pub volume: u16,
+    /// Whether the library sidebar is visible.
+    pub sidebar_visible: bool,
     pub sidebar_width: f32,
+    pub lyrics_width: f32,
+    pub queue_width: f32,
     pub search_history: Vec<String>,
     pub show_shortcut_hints: bool,
-    /// A personal Spotify Web API application id, if the user registered one.
-    /// `None` uses the shared public application.
+    /// An optional personal Spotify Web API application id. The shared
+    /// application remains active for coverage when this is present.
     pub web_client_id: Option<String>,
     /// Local playback has been authorized at least once on this machine, so
     /// the app can resume it silently instead of prompting.
@@ -60,6 +64,11 @@ pub struct Settings {
     pub check_for_updates: bool,
     /// Context URIs pinned to the top of the sidebar, in pin order.
     pub pinned_contexts: Vec<String>,
+    /// The sidebar's own playlist order, set by dragging rows. Empty means
+    /// the automatic order: the pinned block first, then recently played.
+    pub sidebar_order: Vec<String>,
+    /// Interface zoom, egui's zoom factor; Ctrl+plus/minus changes it.
+    pub zoom: f32,
 }
 
 impl Default for Settings {
@@ -77,7 +86,10 @@ impl Default for Settings {
             theme: ThemeChoice::Dark,
             accent_from_art: true,
             volume: (u16::MAX as u32 * 70 / 100) as u16,
+            sidebar_visible: true,
             sidebar_width: 250.0,
+            lyrics_width: 360.0,
+            queue_width: 360.0,
             search_history: Vec::new(),
             show_shortcut_hints: true,
             web_client_id: None,
@@ -85,6 +97,8 @@ impl Default for Settings {
             keep_playing_in_background: true,
             check_for_updates: true,
             pinned_contexts: Vec::new(),
+            sidebar_order: Vec::new(),
+            zoom: 1.0,
         }
     }
 }
@@ -140,6 +154,28 @@ impl Settings {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    #[test]
+    fn older_settings_keep_the_sidebar_visible() {
+        let settings: Settings = serde_json::from_str("{}").unwrap();
+        assert!(settings.sidebar_visible);
+    }
+
+    #[test]
+    fn hidden_sidebar_round_trips() {
+        let settings = Settings {
+            sidebar_visible: false,
+            ..Settings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&json).unwrap();
+        assert!(!restored.sidebar_visible);
+    }
+}
+
 /// Restorable UI session: what was open when the app last closed.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -151,6 +187,16 @@ pub struct SessionState {
     pub last_context: Option<String>,
     pub last_track: Option<String>,
     pub last_position_ms: u32,
+    /// Whether the listener had shuffle on, a mode that outlives contexts.
+    pub shuffle_on: bool,
+    /// Each table's chosen sort, by encoded page, restored at start.
+    pub sorts: Vec<(String, crate::model::TableSort)>,
+    /// Last window inner size, to restore on next launch.
+    pub window_size: Option<[f32; 2]>,
+    /// Last window outer position, to restore on next launch.
+    pub window_pos: Option<[f32; 2]>,
+    /// Whether the queue panel was open.
+    pub queue_open: Option<bool>,
 }
 
 impl SessionState {

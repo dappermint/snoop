@@ -68,6 +68,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         |ui| {
             ui.add_space(super::widgets::PAGE_PADDING);
             ui.spacing_mut().item_spacing.x = 8.0;
+            if !app.settings.sidebar_visible {
+                if nav_button(ui, &palette, Icon::PanelLeft, true, "Show sidebar (Cmd+B)").clicked()
+                {
+                    app.actions.push(Action::ToggleSidebar);
+                }
+                ui.add_space(2.0);
+            }
+            if !app.settings.sidebar_visible
+                && nav_button(ui, &palette, Icon::House, true, "Home").clicked()
+            {
+                app.actions.push(Action::Open(Page::Home));
+            }
             if nav_button(ui, &palette, Icon::ChevronLeft, app.can_go_back(), "Back").clicked() {
                 app.actions.push(Action::Back);
             }
@@ -173,7 +185,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .frame(super::widgets::menu_frame(&palette))
                     .align(egui::RectAlign::BOTTOM_END)
                     .show(|ui| {
-                        ui.set_min_width(200.0);
+                        ui.set_width(200.0);
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space(10.0);

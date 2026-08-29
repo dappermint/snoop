@@ -97,7 +97,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Make it even faster",
-            "Spotify limits each app, and everyone shares this one. An app of your own has its own limit, but opens only playlists you own. Paste its Client ID here.",
+            "Add your own Spotify Development Mode app as optional acceleration. Fastpotify keeps the shared app for catalog coverage and external playlists.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)
@@ -133,46 +133,53 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
-        // Whether the app named above is the one signed in with. Switching
-        // means one more trip through the browser, so it is a button, not a
-        // side effect of typing.
         let wanted = app
             .settings
             .web_client_id
             .as_deref()
             .map(str::trim)
             .filter(|id| !id.is_empty())
-            .unwrap_or(crate::auth::DEFAULT_WEB_CLIENT_ID)
-            .to_string();
-        let own = wanted != crate::auth::DEFAULT_WEB_CLIENT_ID;
-        let in_use = app.web_app.as_deref() == Some(wanted.as_str());
-        if in_use && own {
+            .map(str::to_string);
+        let in_use = wanted
+            .as_deref()
+            .is_some_and(|wanted| app.web_app.as_deref() == Some(wanted));
+        if in_use {
             widgets::setting_row(
                 ui,
                 &palette,
-                "Your app is in use",
-                "Requests go through your own limit.",
+                "Personal acceleration is ready",
+                "Supported requests use your app. Shared catalog coverage stays available.",
                 |ui| {
-                    theme::text(ui, "In use", theme::medium(13.0), palette.accent);
+                    if theme::pill_button(ui, &palette, "Remove", false).clicked() {
+                        app.settings.web_client_id = None;
+                        app.actions.push(Action::ConfigurePersonalWebApp);
+                    }
                 },
             );
-        } else if !in_use && app.web_app.is_some() {
-            let (title, detail) = if own {
-                (
-                    "Ready to switch to your app",
-                    "Snoop signs in again with it; your browser opens once.",
-                )
-            } else {
-                (
-                    "Back to the shared app?",
-                    "Snoop signs in again with it; your browser opens once.",
-                )
-            };
-            widgets::setting_row(ui, &palette, title, detail, |ui| {
-                if theme::pill_button(ui, &palette, "Switch now", true).clicked() {
-                    app.actions.push(Action::SwitchWebApp);
-                }
-            });
+        } else if wanted.is_some() {
+            widgets::setting_row(
+                ui,
+                &palette,
+                "Authorize your personal app",
+                "Spotify opens once to verify that both sessions belong to this account.",
+                |ui| {
+                    if theme::pill_button(ui, &palette, "Authorize", true).clicked() {
+                        app.actions.push(Action::ConfigurePersonalWebApp);
+                    }
+                },
+            );
+        } else if app.web_app.is_some() {
+            widgets::setting_row(
+                ui,
+                &palette,
+                "Remove personal app",
+                "Shared access remains signed in.",
+                |ui| {
+                    if theme::pill_button(ui, &palette, "Remove", false).clicked() {
+                        app.actions.push(Action::ConfigurePersonalWebApp);
+                    }
+                },
+            );
         }
     });
 
@@ -246,7 +253,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    for (kbps, label) in [(320u16, "Very high"), (160, "High"), (96, "Normal")] {
+                    for (kbps, label) in [
+                        (320u16, "Very high · 320 kbps"),
+                        (160, "High · 160 kbps"),
+                        (96, "Normal · 96 kbps"),
+                    ] {
                         if theme::soft_button(
                             ui,
                             &palette,
@@ -446,6 +457,35 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             },
         );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Interface zoom",
+            "Ctrl+Plus and Ctrl+Minus work anywhere; Ctrl+0 resets.",
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    let mut zoom = app.settings.zoom;
+                    if theme::soft_button(ui, &palette, None, "-", false).clicked() {
+                        zoom = (zoom - 0.1).max(0.5);
+                    }
+                    theme::text(
+                        ui,
+                        format!("{:.0}%", zoom * 100.0),
+                        theme::medium(13.5),
+                        palette.text,
+                    );
+                    if theme::soft_button(ui, &palette, None, "+", false).clicked() {
+                        zoom = (zoom + 0.1).min(2.5);
+                    }
+                    if (zoom - app.settings.zoom).abs() > 0.001 {
+                        app.settings.zoom = zoom;
+                        ui.ctx().set_zoom_factor(zoom);
+                        app.mark_settings_dirty();
+                    }
+                });
+            },
+        );
     });
 
     section(ui, &palette, "Storage", |ui| {
@@ -484,15 +524,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     section(ui, &palette, "About", |ui| {
         ui.horizontal(|ui| {
             let (logo, _) = ui.allocate_exact_size(Vec2::splat(40.0), egui::Sense::hover());
-            ui.painter()
-                .circle_filled(logo.center(), 20.0, palette.accent);
-            let icon_rect = egui::Rect::from_center_size(
-                logo.center() + Vec2::new(2.0, 0.0),
-                Vec2::splat(18.0),
-            );
-            Icon::PlayFilled
-                .image(palette.on_accent, 18.0)
-                .paint_at(ui, icon_rect);
+            theme::logo(ui, logo.center(), 40.0, palette.accent, palette.on_accent);
             ui.vertical(|ui| {
                 theme::text(
                     ui,

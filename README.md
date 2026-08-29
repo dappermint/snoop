@@ -31,10 +31,13 @@ regular spotify runs multiple chromium helper processes for rendering, audio, ne
 - **plays music locally:** acts as a native spotify connect receiver, gapless playback up to 320 kbps with optional normalization and audio cache
 - **controls your devices:** switch playback between speakers, phones, and computers directly from the device picker
 - **lan speaker discovery:** finds local librespot / spotifyd instances over mdns and connects them to your account
-- **full library & search:** playlists, liked songs, albums, artists, podcasts, and unified search
+- **full library & search:** playlists, liked songs, albums, artists, podcasts, and unified search. sidebar rows pin to the top and drag into your own order
 - **queue management:** queue side panel or dedicated full page, reorder and add from any row menu
 - **lyrics panel:** synchronized and unsynchronized lyrics following playback
 - **album art tinting:** surfaces dynamically take a subtle tint from the active album cover
+- **dual web api sessions:** personal and shared spotify apps run side by side for maximum quota
+- **drag and drop:** reorder sidebar playlists and drag songs onto playlists
+- **window persistence:** remembers size, position, zoom, and sidebar state across restarts
 
 ## install & development
 
@@ -54,8 +57,8 @@ cargo run --release
 to build a real `Snoop.app` (macos routes media keys, control centre, and the lock screen only to bundled apps, so `cargo run` does not get them):
 
 ```bash
-cargo build --release
-packaging/macos/bundle.sh target/release/snoop Snoop.app 0.2.0
+`cargo build --release
+packaging/macos/bundle.sh target/release/snoop Snoop.app 0.3.0`
 ```
 
 the bundle is ad-hoc signed by default. set `CODESIGN_IDENTITY` to a developer id to sign it for distribution.
@@ -83,15 +86,19 @@ snoop play-pause          snoop volume 40
 snoop play                snoop volume-up [percent]
 snoop pause               snoop volume-down [percent]
 snoop next                snoop mute
-snoop previous            snoop shuffle
-snoop seek 15             snoop repeat
-snoop seek -- -15         snoop show
-snoop now-playing [--raw]
+snoop previous            snoop shuffle [on|off]
+snoop seek 15             snoop repeat [off|context|track]
+snoop seek -- -15         snoop like
+snoop seek-to 90          snoop play-uri spotify:playlist:37i9…
+snoop show                snoop transfer <device-id>
+snoop now-playing [--raw] snoop devices [--raw]
 ```
 
-`now-playing` prints one readable line; `--raw` prints the fields tab-separated (state, title, artists, album, position_ms, duration_ms, volume, shuffle, repeat) for scripts. a verb exits non-zero when snoop is not running.
+`shuffle` and `repeat` toggle when called bare and set the state outright when given an argument. `like` saves the playing track to your library, or removes it.
 
-that is enough for a launcher such as raycast or alfred to drive playback through its own script commands.
+`now-playing` prints one readable line; `--raw` prints the fields tab-separated (state, title, artists, album, position_ms, duration_ms, volume, shuffle, repeat, art_url, saved, device) for scripts. `devices` lists spotify connect devices, the active one marked with `*`; `--raw` prints json. a verb exits non-zero when snoop is not running.
+
+that is enough for a launcher such as raycast or alfred to drive playback through its own script commands. the stream deck plugin speaks the same channel.
 
 ## keyboard shortcuts
 
@@ -105,6 +112,7 @@ that is enough for a launcher such as raycast or alfred to drive playback throug
 | `S` / `R` | shuffle / cycle repeat |
 | `Q` or `⌘U` | toggle queue panel |
 | `L` | toggle lyrics panel |
+| `⌘B` | show or hide the sidebar |
 | `⌘F` or `/` | search |
 | `⌘[` / `⌘]` or `⌥←` / `⌥→` | back or forward |
 | `⌘Shift+H` / `⌘L` | home / liked songs |
@@ -115,11 +123,13 @@ that is enough for a launcher such as raycast or alfred to drive playback throug
 
 ## settings
 
-configuration lives in `~/Library/Application Support/com.dappermint.snoop/settings.json` on macos: connect device name, bitrate, normalization, theme, and audio cache size. caches live under `~/Library/Caches/com.dappermint.snoop` and can be wiped anytime without losing your session.
+configuration lives in `~/Library/Application Support/com.dappermint.snoop/settings.json` on macos: connect device name, bitrate, normalization, theme, sidebar state, and audio cache size. caches live under `~/Library/Caches/com.dappermint.snoop` and can be wiped anytime without losing your session.
 
 ## credits
 
 forked from [crmne/fastpotify](https://github.com/crmne/fastpotify). stands on [librespot](https://github.com/librespot-org/librespot), [egui](https://github.com/emilk/egui), [dracula pro](https://draculatheme.com/pro), [inter](https://rsms.me/inter/), and [lucide](https://lucide.dev) icons.
+
+read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request.
 
 snoop is an independent project and is not affiliated with Spotify AB.
 
