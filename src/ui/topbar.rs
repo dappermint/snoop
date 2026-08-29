@@ -7,6 +7,15 @@ use crate::app::App;
 use crate::model::{Action, Page};
 use crate::theme::{self, Icon, Palette};
 
+/// The window is drawn under a hidden titlebar, so macOS paints its traffic
+/// lights over the top-left corner. The sidebar's header normally leaves
+/// room for them; with the sidebar hidden this bar is what sits there, and
+/// without the inset the first button lands underneath the lights.
+#[cfg(target_os = "macos")]
+const TRAFFIC_LIGHT_INSET: f32 = 78.0;
+#[cfg(not(target_os = "macos"))]
+const TRAFFIC_LIGHT_INSET: f32 = 0.0;
+
 fn nav_button(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -67,22 +76,33 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         Layout::left_to_right(Align::Center),
         |ui| {
             ui.add_space(super::widgets::PAGE_PADDING);
-            ui.spacing_mut().item_spacing.x = 8.0;
             if !app.settings.sidebar_visible {
-                if nav_button(ui, &palette, Icon::PanelLeft, true, "Show sidebar (Cmd+B)").clicked()
-                {
+                ui.add_space(TRAFFIC_LIGHT_INSET);
+            }
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let mut first_button_left = f32::MAX;
+            if !app.settings.sidebar_visible {
+                let response =
+                    nav_button(ui, &palette, Icon::PanelLeft, true, "Show sidebar (Cmd+B)");
+                first_button_left = first_button_left.min(response.rect.left());
+                if response.clicked() {
                     app.actions.push(Action::ToggleSidebar);
                 }
                 ui.add_space(2.0);
             }
-            if !app.settings.sidebar_visible
-                && nav_button(ui, &palette, Icon::House, true, "Home").clicked()
-            {
-                app.actions.push(Action::Open(Page::Home));
+            if !app.settings.sidebar_visible {
+                let response = nav_button(ui, &palette, Icon::House, true, "Home");
+                first_button_left = first_button_left.min(response.rect.left());
+                if response.clicked() {
+                    app.actions.push(Action::Open(Page::Home));
+                }
             }
-            if nav_button(ui, &palette, Icon::ChevronLeft, app.can_go_back(), "Back").clicked() {
+            let back = nav_button(ui, &palette, Icon::ChevronLeft, app.can_go_back(), "Back");
+            first_button_left = first_button_left.min(back.rect.left());
+            if back.clicked() {
                 app.actions.push(Action::Back);
             }
+            app.top_bar_first_button_left = first_button_left;
             if nav_button(
                 ui,
                 &palette,

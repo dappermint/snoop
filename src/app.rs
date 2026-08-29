@@ -149,6 +149,9 @@ pub struct App {
     /// Theme files found at startup; the settings page draws every frame,
     /// so the directory is not read while drawing.
     pub custom_themes: Vec<crate::themes::Theme>,
+    /// Where the top bar's leftmost button landed, so a test can check it
+    /// clears the traffic lights the hidden titlebar leaves floating there.
+    pub top_bar_first_button_left: f32,
 
     pub auth: AuthStatus,
     pub user: Option<User>,
@@ -367,6 +370,7 @@ impl App {
             palette: crate::theme::Palette::dark(),
             applied_theme: None,
             custom_themes,
+            top_bar_first_button_left: f32::MAX,
             auth: AuthStatus::Starting,
             user: None,
             local_device_id: None,

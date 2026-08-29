@@ -705,6 +705,64 @@ mod tests {
         output.textures_delta.clear();
     }
 
+    /// The window has no titlebar, so macOS paints its traffic lights over
+    /// the top-left corner. The sidebar's header leaves room for them; with
+    /// the sidebar hidden the top bar is what sits there instead, and its
+    /// first button used to land underneath the lights.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_top_bar_clears_the_traffic_lights_without_a_sidebar() {
+        let root = std::env::temp_dir().join(format!("snoop-inset-test-{}", std::process::id()));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let ctx = egui::Context::default();
+        let waker = crate::backend::Waker::default();
+        waker.attach(&ctx);
+        let mut app = App::new(
+            &waker,
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        app.attach(&ctx);
+        populate(&mut app);
+
+        // The lights occupy roughly the first 78 points of the row.
+        const LIGHTS: f32 = 78.0;
+        app.settings.sidebar_visible = false;
+        for _ in 0..3 {
+            frame(&ctx, &mut app);
+        }
+        let hidden = app.top_bar_first_button_left;
+        assert!(
+            hidden >= LIGHTS,
+            "the first button starts at {hidden}, under the traffic lights"
+        );
+
+        // With the sidebar back it covers that corner itself, so the bar
+        // starts just inside the sidebar's edge rather than reserving the
+        // lights' width a second time.
+        app.settings.sidebar_visible = true;
+        for _ in 0..3 {
+            frame(&ctx, &mut app);
+        }
+        let shown = app.top_bar_first_button_left;
+        let past_sidebar = shown - app.settings.sidebar_width;
+        assert!(
+            past_sidebar < LIGHTS,
+            "the bar starts {past_sidebar} past the sidebar's {} points, so \
+             the lights' space is being paid for twice",
+            app.settings.sidebar_width
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// Every page, panel, and dialog lays out without panicking.
     #[test]
     fn every_surface_renders_headless() {
