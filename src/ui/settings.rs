@@ -446,26 +446,30 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
         });
-        widgets::setting_row(ui, &palette, "Colours", "", |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                for scheme in crate::themes::Theme::ALL {
-                    if theme::soft_button(
-                        ui,
-                        &palette,
-                        None,
-                        scheme.label(),
-                        app.settings.color_theme == scheme,
-                    )
-                    .clicked()
-                        && app.settings.color_theme != scheme
-                    {
-                        app.settings.color_theme = scheme;
-                        changed = true;
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Colours",
+            "Drop a .toml in the themes folder to add your own.",
+            |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    let schemes = crate::themes::Theme::BUILT_IN
+                        .into_iter()
+                        .chain(app.custom_themes.iter().cloned());
+                    for scheme in schemes {
+                        let selected = app.settings.color_theme == scheme;
+                        if theme::soft_button(ui, &palette, None, scheme.label(), selected)
+                            .clicked()
+                            && !selected
+                        {
+                            app.settings.color_theme = scheme;
+                            changed = true;
+                        }
                     }
-                }
-            });
-        });
+                });
+            },
+        );
         widgets::setting_row(
             ui,
             &palette,

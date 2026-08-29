@@ -8,7 +8,7 @@ a mac-first fork of [fastpotify](https://github.com/crmne/fastpotify): native, l
 
 - **unified transparent titlebar:** fullsize content view with native traffic light controls cleanly integrated into the sidebar header
 - **now playing everywhere:** media keys, control centre, the lock screen, and the airpods pinch all drive snoop, cover art included
-- **dracula pro visual language:** default palette tuned to dracula pro with high-contrast accents and matching app icon. `dracula` and upstream `spotify` schemes are in settings too
+- **dracula by default:** ships the open-source dracula palette, with upstream's `spotify` green a click away. drop a `.toml` in the themes folder for your own, including dracula pro if you own it
 - **macos shortcuts:** native `⌘` keybindings everywhere, including `⌘[` / `⌘]` for page history navigation
 - **zero electron bloat:** starts in under a second and stays tiny in memory while playing gapless 320 kbps audio
 - **nix flake + direnv:** reproducible dev environment out of the box
@@ -100,6 +100,26 @@ snoop now-playing [--raw] snoop devices [--raw]
 
 that is enough for a launcher such as raycast or alfred to drive playback through its own script commands. the stream deck plugin speaks the same channel.
 
+## themes
+
+two schemes ship: `dracula` (the open-source one, default) and `spotify` (upstream's green). anything else is a file:
+
+```
+~/Library/Application Support/com.dappermint.snoop/themes/<name>.toml
+```
+
+the format is the flat half of an alacritty colour config, one `key = "#rrggbb"` per line, with `#` comments outside quotes and `[section]` headers skipped. the key names are snoop's own (listed below), not alacritty's. every key you leave out keeps its built-in value, so a one-line file is a valid theme:
+
+```toml
+dark   = true
+accent = "#9580ff"   # comments work outside the quotes
+window = "#22212c"
+```
+
+keys: `dark`, `window`, `panel`, `surface`, `surface_hover`, `surface_active`, `outline`, `text`, `secondary`, `dim`, `accent`, `accent_hover`, `on_accent`, `danger`, `warning`, `overlay`, `shadow`. colours take `#rrggbb`, `#rrggbbaa`, `0xrrggbb`, or bare hex. new files appear in settings after a restart; a broken one falls back to the default and says why in the log.
+
+this is how to run [dracula pro](https://draculatheme.com/pro) if you own a licence, without the repository shipping a paid palette.
+
 ## keyboard shortcuts
 
 | shortcut | what it does |
@@ -127,7 +147,7 @@ configuration lives in `~/Library/Application Support/com.dappermint.snoop/setti
 
 ## credits
 
-forked from [crmne/fastpotify](https://github.com/crmne/fastpotify). stands on [librespot](https://github.com/librespot-org/librespot), [egui](https://github.com/emilk/egui), [dracula pro](https://draculatheme.com/pro), [inter](https://rsms.me/inter/), and [lucide](https://lucide.dev) icons.
+forked from [crmne/fastpotify](https://github.com/crmne/fastpotify). stands on [librespot](https://github.com/librespot-org/librespot), [egui](https://github.com/emilk/egui), [dracula](https://draculatheme.com) (mit), [inter](https://rsms.me/inter/), and [lucide](https://lucide.dev) icons.
 
 read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request.
 

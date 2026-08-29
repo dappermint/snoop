@@ -43,6 +43,11 @@ impl AppDirs {
         self.config.join("settings.json")
     }
 
+    /// Where `<name>.toml` colour schemes live.
+    pub fn themes_dir(&self) -> PathBuf {
+        self.config.join("themes")
+    }
+
     pub fn session_file(&self) -> PathBuf {
         self.state.join("session.json")
     }

@@ -146,6 +146,9 @@ pub struct App {
     pub offline: bool,
     pub palette: Palette,
     applied_theme: Option<(bool, crate::themes::Theme)>,
+    /// Theme files found at startup; the settings page draws every frame,
+    /// so the directory is not read while drawing.
+    pub custom_themes: Vec<crate::themes::Theme>,
 
     pub auth: AuthStatus,
     pub user: Option<User>,
@@ -317,6 +320,7 @@ const GLIDE_STOP: f32 = 40.0;
 impl App {
     pub fn new(waker: &Waker, dirs: AppDirs, settings: Settings, options: AppOptions) -> Self {
         let engine_config = engine_config(&dirs, &settings);
+        let custom_themes = crate::themes::Theme::discover(&dirs.themes_dir());
         let backend = Backend::spawn(
             dirs.clone(),
             engine_config,
@@ -358,8 +362,9 @@ impl App {
             control_devices: None,
             control_devices_stale: true,
             offline: false,
-            palette: crate::themes::Theme::default().dark(),
+            palette: crate::theme::Palette::dark(),
             applied_theme: None,
+            custom_themes,
             auth: AuthStatus::Starting,
             user: None,
             local_device_id: None,
@@ -1245,9 +1250,9 @@ impl App {
 
     fn apply_theme(&mut self, ctx: &egui::Context) {
         let dark = ctx.theme() == egui::Theme::Dark;
-        let scheme = self.settings.color_theme;
-        if self.applied_theme != Some((dark, scheme)) {
-            self.palette = if dark { scheme.dark() } else { scheme.light() };
+        let scheme = self.settings.color_theme.clone();
+        if self.applied_theme.as_ref() != Some(&(dark, scheme.clone())) {
+            self.palette = scheme.palette(dark, &self.dirs.themes_dir());
             theme::apply(ctx, &self.palette);
             self.applied_theme = Some((dark, scheme));
             self.accents.clear();
