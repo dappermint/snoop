@@ -1191,8 +1191,26 @@ pub fn card(
     playable: bool,
 ) -> CardResponse {
     let palette = app.palette;
-    let image_size = CARD_WIDTH - 24.0;
-    let height = image_size + 70.0;
+    const PAD: f32 = 12.0;
+    const TITLE_GAP: f32 = 10.0;
+    const SUBTITLE_GAP: f32 = 2.0;
+    const BOTTOM_PAD: f32 = 8.0;
+    let image_size = CARD_WIDTH - 2.0 * PAD;
+    let text_width = image_size;
+    let title_font = theme::semibold(14.0);
+    let subtitle_font = theme::regular(12.5);
+    // Every card reserves the title row and two subtitle rows, whatever its
+    // own subtitle needs: a two-line subtitle then sits inside the hover
+    // background, and a shelf that mixes one- and two-line subtitles keeps
+    // its covers on one line instead of centring cards of different heights.
+    let (title_row, subtitle_row) = ui.fonts_mut(|fonts| {
+        (
+            fonts.row_height(&title_font),
+            fonts.row_height(&subtitle_font),
+        )
+    });
+    let height =
+        PAD + image_size + TITLE_GAP + title_row + SUBTITLE_GAP + 2.0 * subtitle_row + BOTTOM_PAD;
     let (rect, response) = ui.allocate_exact_size(vec2(CARD_WIDTH, height), Sense::click());
     let mut play = false;
     if ui.is_rect_visible(rect) {
@@ -1208,7 +1226,7 @@ pub fn card(
                 egui::StrokeKind::Inside,
             );
         }
-        let image_rect = Rect::from_min_size(rect.min + vec2(12.0, 12.0), Vec2::splat(image_size));
+        let image_rect = Rect::from_min_size(rect.min + vec2(PAD, PAD), Vec2::splat(image_size));
         let radius = if round { image_size / 2.0 } else { 8.0 };
         paint_shadow(ui, &palette, image_rect, radius);
         paint_cover(
@@ -1219,33 +1237,29 @@ pub fn card(
             radius,
             if round { Icon::User } else { Icon::Music },
         );
-        let text_left = rect.left() + 12.0;
-        let text_width = CARD_WIDTH - 24.0;
-        let title_galley = ellipsized(
-            ui,
-            title,
-            theme::semibold(14.0),
-            palette.text,
-            text_width,
-            1,
-        );
+        let text_left = rect.left() + PAD;
+        let title_galley = ellipsized(ui, title, title_font, palette.text, text_width, 1);
         let title_rect = Rect::from_min_size(
-            pos2(text_left, image_rect.bottom() + 10.0),
-            vec2(text_width, 20.0),
+            pos2(text_left, image_rect.bottom() + TITLE_GAP),
+            vec2(text_width, title_row),
         );
-        ui.painter()
-            .galley(title_rect.min, title_galley, palette.text);
+        let title_pos = match title_galley.job.halign {
+            Align::RIGHT => pos2(title_rect.right(), title_rect.top()),
+            Align::Center => pos2(title_rect.center().x, title_rect.top()),
+            _ => title_rect.min,
+        };
+        ui.painter().galley(title_pos, title_galley, palette.text);
         let subtitle_galley = ellipsized(
             ui,
             subtitle,
-            theme::regular(12.5),
+            subtitle_font,
             palette.secondary,
             text_width,
             2,
         );
         let subtitle_rect = Rect::from_min_size(
-            pos2(text_left, title_rect.bottom() + 2.0),
-            vec2(text_width, 34.0),
+            pos2(text_left, title_rect.bottom() + SUBTITLE_GAP),
+            vec2(text_width, 2.0 * subtitle_row),
         );
         ui.painter()
             .galley(subtitle_rect.min, subtitle_galley, palette.secondary);
