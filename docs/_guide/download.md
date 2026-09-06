@@ -13,9 +13,17 @@ The current version is **v{{ v }}**. SHA-256 checksums are in
 
 ## macOS
 
+{% if v == "0.6.0" %}
 One download for both Apple Silicon and Intel:
 
 - [snoop-v{{ v }}-macos-universal.dmg]({{ base }}/snoop-v{{ v }}-macos-universal.dmg)
+{% else %}
+For Apple Silicon. Intel Macs can use
+[0.6.0](https://github.com/dappermint/snoop/releases/tag/v0.6.0), the last
+universal build:
+
+- [snoop-v{{ v }}-aarch64-apple-darwin.dmg]({{ base }}/snoop-v{{ v }}-aarch64-apple-darwin.dmg)
+{% endif %}
 
 Open it and drag **Snoop** to Applications. Once opened, it is
 registered for `spotify:` links, so links shared from other apps open in

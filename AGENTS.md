@@ -130,6 +130,11 @@ A release is not the tag alone. Do these in order:
 5. The release workflow's `cask` job updates the Homebrew cask in the
    maintainer's tap from the DMG it built; check that it ran. Snoop
    publishes no AUR or Flatpak package.
+6. Until the first release after 0.6.0 has shipped: that release is the
+   first Apple Silicon only build. `scripts/bump-cask.sh` moves the cask's
+   url and adds `depends_on arch: :arm64` on that bump, and the download
+   page's `{% if v == "0.6.0" %}` branch can go once the site points past
+   0.6.0. Then delete this item and the migration in the script.
 
 Before writing release notes, read the previous two stable releases and match
 their style. Start with a short plain-language summary, use `New` and `Fixed`

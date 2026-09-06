@@ -32,6 +32,12 @@ fi
 git -C "$TAP_DIR" fetch -q origin main
 git -C "$TAP_DIR" reset -q --hard FETCH_HEAD
 
+# 0.6.0 was the last universal build; from the next release the DMG is Apple
+# Silicon only under a new name. The first bump past 0.6.0 moves the cask's
+# url and arch restriction in the same commit as the version, so the cask
+# never points at a file that does not exist. Drop this once the tap has it.
+perl -0pi -e 's/snoop-v#\{version\}-macos-universal\.dmg/snoop-v#{version}-aarch64-apple-darwin.dmg/; s/^(  depends_on macos: :\w+\n)(?!  depends_on arch:)/$1  depends_on arch: :arm64\n/m' "$TAP_DIR/$CASK"
+
 echo "==> Bumping $TAP/snoop to ${VERSION}"
 # --write-only leaves the tap dirty instead of opening a PR; the tap is ours to
 # push to directly. Without --sha256 brew downloads the DMG to compute it.
