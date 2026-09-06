@@ -1,5 +1,5 @@
 title: Snoop
-snoop_version: "0.3.0"
+snoop_version: "0.6.0"
 description: A mac-first, native Spotify client written in Rust. A fork of Fastpotify.
 lang: en-US
 timezone: Europe/Berlin
