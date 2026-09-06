@@ -129,7 +129,7 @@
                 pname = "snoop";
                 version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
                 src = self;
-                hash = "sha256-tOTVA5TR/1uZwnHMWJ4OAcyEive0EM3h8titY8WuOkc=";
+                hash = "sha256-eck4kzUp6YHNti6oQif8CJftyZbG6ixPIuFgYykFrUA=";
               };
 
               nativeBuildInputs =

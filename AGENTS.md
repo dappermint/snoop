@@ -112,8 +112,9 @@ work done with the maintainer, does not go through them.
 A release is not the tag alone. Do these in order:
 
 1. Change the `Cargo.toml` version and update the lockfile with a build.
-   Commit and push this before the tag so the binaries report the right
-   version.
+   The `cargoDeps` hash in `flake.nix` changes with the version: run
+   `nix build .#snoop` and take the hash it reports. Commit and push this
+   before the tag so the binaries report the right version.
 2. Push the `v*` tag, which triggers the release workflow. Wait for every
    required artifact and `checksums.txt`, then replace the generated notes
    with written ones.
