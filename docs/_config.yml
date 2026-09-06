@@ -60,12 +60,12 @@ jekyll_vitepress:
     title: Snoop
     description: >-
       Documentation for Snoop, a mac-first native Spotify client written in
-      Rust with egui and librespot: one lightweight app for your whole
-      library, local playback, and Spotify Connect. A fork of Fastpotify.
+      Rust with egui and librespot. It covers local playback, library access,
+      and Spotify Connect. A fork of Fastpotify.
     full: true
     details: >-
-      The canonical documentation covers installation, signing in, everyday
-      use, settings, and how the client connects to Spotify. Source is on
+      Covers installation, sign-in, everyday use, settings, and Spotify
+      connections. Source is on
       [GitHub](https://github.com/dappermint/snoop).
   branding:
     site_title: Snoop

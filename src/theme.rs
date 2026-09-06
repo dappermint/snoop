@@ -1,10 +1,8 @@
-//! Snoop's visual language: palette, typography, icons, base widgets.
+//! Shared palette, typography, icons, and base widgets.
 //!
-//! Inter carries the interface with real weights (egui's `strong()` only
-//! brightens), IBM-free monospace is unnecessary here, and one Lucide icon
-//! vocabulary replaces Unicode lookalikes. Everything colour-related goes
-//! through a [`Palette`] so light and dark stay coherent and album-art tints
-//! can be blended in without hunting for hard-coded colours.
+//! Inter provides real font weights, and Lucide provides a consistent icon set.
+//! All colors use [`Palette`] so light, dark, and album-art-tinted themes stay
+//! consistent.
 
 use egui::{Color32, CornerRadius, Response, Sense, Stroke, Vec2};
 
@@ -99,8 +97,27 @@ pub const RADIUS: u8 = 8;
 pub const RADIUS_SMALL: u8 = 4;
 pub const ROW_HEIGHT: f32 = 56.0;
 pub const COMPACT_ROW_HEIGHT: f32 = 48.0;
+/// The compact track list: one line, no cover.
+pub const THIN_ROW_HEIGHT: f32 = 36.0;
 pub const PLAYER_BAR_HEIGHT: f32 = 88.0;
+/// The narrowest either right-hand panel goes. The queue and the lyrics
+/// take the same edge and swap places there, so a width that suits one
+/// has to suit the other, or the window would jump on the swap.
+pub const SIDE_PANEL_MIN_WIDTH: f32 = 280.0;
 pub const TOP_BAR_HEIGHT: f32 = 56.0;
+
+/// macOS hides the titlebar and draws the window content all the way to the
+/// top edge, so whatever sits at the top of the window has to leave room for
+/// the traffic lights. Zero everywhere else, and in fullscreen, where the
+/// buttons are gone.
+pub fn titlebar_inset(ctx: &egui::Context) -> f32 {
+    if cfg!(target_os = "macos") && !ctx.input(|input| input.viewport().fullscreen.unwrap_or(false))
+    {
+        28.0
+    } else {
+        0.0
+    }
+}
 
 const INTER_MEDIUM: &str = "inter-medium";
 const INTER_SEMIBOLD: &str = "inter-semibold";
@@ -254,11 +271,30 @@ fn install_fonts(ctx: &egui::Context) {
         .font_data
         .insert(INTER_BOLD.to_owned(), weighted(700.0));
 
+    let noto_emoji = include_bytes!("../assets/fonts/NotoEmoji.ttf");
+    fonts.font_data.insert(
+        "noto_emoji".to_owned(),
+        Arc::new(FontData::from_static(noto_emoji)),
+    );
+
     fonts
         .families
         .entry(FontFamily::Proportional)
         .or_default()
         .insert(0, "inter".to_owned());
+    // Right behind the text face, ahead of the emoji subset and the icon
+    // font egui bundles, so every emoji comes from the one full face and
+    // wears the same style; egui's pair still serves what Noto lacks.
+    fonts
+        .families
+        .entry(FontFamily::Proportional)
+        .or_default()
+        .insert(1, "noto_emoji".to_owned());
+    fonts
+        .families
+        .entry(FontFamily::Monospace)
+        .or_default()
+        .insert(1, "noto_emoji".to_owned());
     let fallbacks: Vec<String> = fonts.families[&FontFamily::Proportional]
         .iter()
         .skip(1)
@@ -270,18 +306,11 @@ fn install_fonts(ctx: &egui::Context) {
         fonts.families.insert(FontFamily::Name(name.into()), family);
     }
 
-    // Inter draws Latin, Greek, and Cyrillic and nothing else, and the faces
-    // egui bundles add no more, so a title in any other script arrives as a
-    // row of tofu boxes. Shipping the fonts that would cover them is not an
-    // option -- Noto CJK alone is ten times this binary -- but a desktop that
-    // displays a script already carries a face for it. Borrow those and append
-    // them to each family, after Inter so Latin text keeps its shape and after
-    // the emoji faces so emoji keep their colour.
+    // Add installed fallbacks for scripts Inter does not cover. Keep them after
+    // Inter and the emoji font to preserve Latin shapes and color emoji.
     for font in crate::system_fonts::fallbacks() {
-        // Lending epaint the cached bytes rather than handing it owned ones
-        // saves copying them into its own blob, paid again every time it
-        // rebuilds the glyph atlas -- which a twenty-megabyte CJK collection
-        // makes expensive and CJK text, filling the atlas fast, provokes.
+        // Reuse cached font bytes to avoid copying large collections whenever
+        // epaint rebuilds the glyph atlas.
         let mut data = FontData::from_static(&font.bytes);
         data.index = font.index;
         fonts.font_data.insert(font.name.clone(), Arc::new(data));
@@ -366,6 +395,7 @@ pub enum Icon {
     Repeat1,
     Search,
     Settings,
+    Shrink,
     Shuffle,
     SkipBack,
     SkipBackFilled,
@@ -454,6 +484,7 @@ const ICONS: &[(Icon, &str, &[u8])] = icons! {
     Repeat1 => "repeat-1",
     Search => "search",
     Settings => "settings",
+    Shrink => "shrink",
     Shuffle => "shuffle",
     SkipBack => "skip-back",
     SkipBackFilled => "skip-back-filled",
@@ -515,6 +546,21 @@ pub fn paint_icon(ui: &egui::Ui, icon: Icon, rect: egui::Rect, size: f32, color:
     icon.image(color, size).paint_at(ui, icon_rect);
 }
 
+/// Make keyboard focus visible without changing the control's layout.
+pub fn focus_ring(ui: &egui::Ui, response: &Response) {
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            response.rect.expand(2.0),
+            4.0,
+            ui.visuals().selection.stroke,
+            egui::StrokeKind::Outside,
+        );
+    }
+    if response.gained_focus() {
+        response.scroll_to_me(None);
+    }
+}
+
 /// A frameless icon control whose colour lifts on hover.
 pub fn icon_button(
     ui: &mut egui::Ui,
@@ -526,6 +572,9 @@ pub fn icon_button(
 ) -> Response {
     let edge = size + 12.0;
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(edge), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tooltip)
+    });
     if ui.is_rect_visible(rect) {
         let tint = if response.hovered() || response.has_focus() {
             hover
@@ -539,6 +588,7 @@ pub fn icon_button(
         };
         paint_icon(ui, icon, rect, size * scale, tint);
     }
+    focus_ring(ui, &response);
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if tooltip.is_empty() {
         response
@@ -547,15 +597,10 @@ pub fn icon_button(
     }
 }
 
-/// A round, filled control such as the main play button.
-/// The horizontal nudge that visually centres a play triangle. A
-/// right-pointing triangle's mass sits left of its bounding box, so a
-/// geometrically centred glyph reads as pushed left and a full optical
-/// shift reads as pushed right. Lucide bakes about one viewBox unit
-/// (1/24) of right shift into the artwork; replacing it with a measured
-/// 3% of the icon size lands the glyph centred at every size used here.
-/// Every place that paints the glyph must use this, or the login-logo
-/// bug returns: hand-tuned nudges drifted apart per call site.
+/// Horizontal offset that optically centers play triangles.
+///
+/// Lucide includes a 1/24-width shift; a measured 3% shift centers the icon at
+/// Fastpotify's sizes. Use this everywhere instead of per-call adjustments.
 pub fn play_glyph_offset(icon: Icon, icon_size: f32) -> Vec2 {
     if matches!(icon, Icon::PlayFilled | Icon::Play) {
         Vec2::new(icon_size * (0.03 - 1.0 / 24.0), 0.0)
@@ -588,6 +633,9 @@ pub fn circle_button(
     tooltip: &str,
 ) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(diameter), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tooltip)
+    });
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
         let grow = if hovered { 1.05 } else { 1.0 };
@@ -600,6 +648,7 @@ pub fn circle_button(
             egui::Rect::from_center_size(rect.center() + offset, Vec2::splat(icon_size));
         icon.image(icon_color, icon_size).paint_at(ui, icon_rect);
     }
+    focus_ring(ui, &response);
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     if tooltip.is_empty() {
         response
@@ -618,6 +667,13 @@ pub fn circle_spinner(
     tooltip: &str,
 ) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(diameter), Sense::hover());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::ProgressIndicator,
+            ui.is_enabled(),
+            tooltip,
+        )
+    });
     if ui.is_rect_visible(rect) {
         ui.painter()
             .circle_filled(rect.center(), diameter / 2.0, fill);
@@ -645,6 +701,9 @@ pub fn pill_button(ui: &mut egui::Ui, palette: &Palette, label: &str, primary: b
     let padding = Vec2::new(18.0, 8.0);
     let size = galley.size() + padding * 2.0;
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
         let radius = rect.height() / 2.0;
@@ -683,6 +742,7 @@ pub fn pill_button(ui: &mut egui::Ui, palette: &Palette, label: &str, primary: b
         let pos = rect.center() - galley.size() / 2.0;
         ui.painter().galley(pos, galley, color);
     }
+    focus_ring(ui, &response);
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -700,12 +760,17 @@ pub fn soft_button(
     } else {
         palette.text
     };
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, color);
+    let galley =
+        ui.painter()
+            .layout_no_wrap(crate::bidi::display_text(label).into_owned(), font, color);
     let icon_size = 15.0;
     let icon_width = if icon.is_some() { icon_size + 6.0 } else { 0.0 };
     let padding = Vec2::new(12.0, 7.0);
     let size = Vec2::new(galley.size().x + icon_width, galley.size().y) + padding * 2.0;
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered();
         let (fill, stroke_color) = if active {
@@ -734,6 +799,7 @@ pub fn soft_button(
         let pos = egui::pos2(x, rect.center().y - galley.size().y / 2.0);
         ui.painter().galley(pos, galley, color);
     }
+    focus_ring(ui, &response);
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -766,6 +832,20 @@ pub fn text(
     font: egui::FontId,
     color: Color32,
 ) -> Response {
+    let text = text.into();
+    if crate::bidi::is_rtl(&text) {
+        // Laid out here so a cut lands at the reading end, on the left.
+        let galley = crate::bidi::layout(
+            ui.painter(),
+            &text,
+            font,
+            color,
+            ui.available_width(),
+            1,
+            Some(crate::bidi::ELLIPSIS),
+        );
+        return ui.add(egui::Label::new(galley).selectable(false));
+    }
     ui.add(
         egui::Label::new(egui::RichText::new(text).font(font).color(color))
             .truncate()
@@ -780,12 +860,33 @@ pub fn link(
     font: egui::FontId,
     color: Color32,
 ) -> Response {
-    let response = ui.add(
-        egui::Label::new(egui::RichText::new(text).font(font).color(color))
-            .truncate()
-            .selectable(false)
-            .sense(Sense::click()),
-    );
+    let text = text.into();
+    let response = if crate::bidi::is_rtl(&text) {
+        let galley = crate::bidi::layout(
+            ui.painter(),
+            &text,
+            font,
+            color,
+            ui.available_width(),
+            1,
+            Some(crate::bidi::ELLIPSIS),
+        );
+        ui.add(
+            egui::Label::new(galley)
+                .selectable(false)
+                .sense(Sense::click()),
+        )
+    } else {
+        ui.add(
+            egui::Label::new(egui::RichText::new(text.clone()).font(font).color(color))
+                .truncate()
+                .selectable(false)
+                .sense(Sense::click()),
+        )
+    };
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, ui.is_enabled(), &text));
+    focus_ring(ui, &response);
     if response.hovered() {
         let rect = response.rect;
         ui.painter()
@@ -800,4 +901,24 @@ pub fn section_title(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Respo
 
 pub fn subtle(ui: &mut egui::Ui, palette: &Palette, label: &str) -> Response {
     text(ui, label, regular(13.0), palette.secondary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fonts_install_and_layout_emojis() {
+        let ctx = egui::Context::default();
+        install(&ctx);
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let galley = ui.painter().layout_no_wrap(
+                "Rosewood 🔥 Otomo 🎵 ❤️ 🚀".to_string(),
+                regular(14.0),
+                Color32::WHITE,
+            );
+            assert!(galley.rows[0].glyphs.len() >= 5);
+        });
+        output.textures_delta.clear();
+    }
 }

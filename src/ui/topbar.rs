@@ -71,8 +71,24 @@ fn nav_button(
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let width = ui.available_width();
+    let window_controls = super::window_controls_reservation(
+        ui.ctx(),
+        app.show_queue_panel,
+        app.show_lyrics_panel,
+        width,
+    );
+    // Where the titlebar used to be: the bar grows upwards into that space and
+    // its empty parts drag the window.
+    let inset = theme::titlebar_inset(ui.ctx());
+    let content_height = theme::TOP_BAR_HEIGHT + inset;
+    let height = content_height + window_controls.topbar_top;
+    super::titlebar_drag(
+        ui,
+        egui::Rect::from_min_size(ui.cursor().min, vec2(width, height)),
+    );
+    ui.add_space(window_controls.topbar_top);
     ui.allocate_ui_with_layout(
-        vec2(width, theme::TOP_BAR_HEIGHT),
+        vec2(width, content_height),
         Layout::left_to_right(Align::Center),
         |ui| {
             ui.add_space(super::widgets::PAGE_PADDING);
@@ -82,8 +98,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.spacing_mut().item_spacing.x = 8.0;
             let mut first_button_left = f32::MAX;
             if !app.settings.sidebar_visible {
-                let response =
-                    nav_button(ui, &palette, Icon::PanelLeft, true, "Show sidebar (Cmd+B)");
+                let response = nav_button(
+                    ui,
+                    &palette,
+                    Icon::PanelLeft,
+                    true,
+                    super::keys::platform_shortcut("Show sidebar (Ctrl+B)", "Show sidebar (Cmd+B)"),
+                );
                 first_button_left = first_button_left.min(response.rect.left());
                 if response.clicked() {
                     app.actions.push(Action::ToggleSidebar);
@@ -116,7 +137,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             ui.add_space(8.0);
 
-            let search_width = (ui.available_width() * 0.5).clamp(200.0, 440.0);
+            let search_room = (ui.available_width() - window_controls.topbar_width).max(0.0);
+            let search_width = (search_room * 0.5).clamp(200.0, 440.0);
             let id = egui::Id::new("global-search");
             let before = app.search.query.clone();
             let response = super::widgets::search_field(
@@ -149,6 +171,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.add_space(window_controls.topbar_width);
                 ui.add_space(super::widgets::PAGE_PADDING);
                 // Account.
                 let (name, avatar) = app
@@ -256,6 +279,40 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 {
                     app.actions.push(Action::Open(Page::Settings));
                 }
+                if theme::icon_button(
+                    ui,
+                    Icon::AudioLines,
+                    19.0,
+                    if app.settings.milkdrop_open {
+                        palette.accent
+                    } else {
+                        palette.secondary
+                    },
+                    palette.text,
+                    super::keys::platform_shortcut(
+                        "MilkDrop visualiser (Ctrl+Shift+K)",
+                        "MilkDrop visualiser (Cmd+Shift+K)",
+                    ),
+                )
+                .clicked()
+                {
+                    app.actions.push(Action::ToggleWinampMilkdrop);
+                }
+                if theme::icon_button(
+                    ui,
+                    Icon::Shrink,
+                    19.0,
+                    palette.secondary,
+                    palette.text,
+                    super::keys::platform_shortcut(
+                        "Winamp mini player (Ctrl+M)",
+                        "Winamp mini player (Cmd+Shift+M)",
+                    ),
+                )
+                .clicked()
+                {
+                    app.actions.push(Action::ToggleWinampWindow);
+                }
                 // A quiet spinner once the app has been talking to Spotify for a
                 // while, long enough that fast requests never flash it.
                 if app
@@ -264,7 +321,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .busy(std::time::Duration::from_millis(1000))
                 {
                     theme::spinner(ui, 15.0, palette.secondary)
-                        .on_hover_text("Talking to Spotify…");
+                        .on_hover_text("Waiting for Spotify…");
                 }
                 // Where playback is.
                 if let Some(now) = app.now_playing()
@@ -332,7 +389,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     if response
                         .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .on_hover_text(format!(
-                            "Snoop {} is out. Opens the download page.",
+                            "Version {} is available. Open the download page.",
                             update.version
                         ))
                         .clicked()

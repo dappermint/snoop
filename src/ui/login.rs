@@ -14,6 +14,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
         .frame(Frame::new().fill(palette.window))
         .show(ui, |ui| {
             let rect = ui.max_rect();
+            super::titlebar_drag(ui, rect);
             let top = super::blend(palette.window, palette.accent, 0.10);
             super::widgets::paint_vertical_gradient(ui, rect, top, palette.window);
             let card_width = 440.0;
@@ -98,7 +99,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                             ui.add_space(10.0);
                             ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new("Sign-in happens in your browser; your password never touches this app. Playing music on this computer needs Spotify Premium.")
+                                    egui::RichText::new("Sign in through your browser. Snoop never sees your password. Local playback needs Spotify Premium.")
                                         .font(theme::regular(12.5))
                                         .color(palette.secondary),
                                 )

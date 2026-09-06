@@ -1,4 +1,4 @@
-//! Interface-side state: what is open, what is loaded, what was asked for.
+//! UI state, loaded data, and pending actions.
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -85,6 +85,32 @@ impl Page {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum QueueTab {
+    #[default]
+    Queue,
+    Recents,
+}
+
+impl QueueTab {
+    pub fn encode(self) -> &'static str {
+        match self {
+            Self::Queue => "queue",
+            Self::Recents => "recents",
+        }
+    }
+
+    pub fn decode(text: &str) -> Option<Self> {
+        match text {
+            "queue" => Some(Self::Queue),
+            "recents" => Some(Self::Recents),
+            // Backward compatibility with the old tab name.
+            "recently_played" => Some(Self::Recents),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Loadable<T> {
     #[default]
@@ -136,29 +162,37 @@ impl<T> Loadable<T> {
 #[derive(Clone, Debug)]
 pub struct PagedList<T> {
     pub items: Vec<T>,
+    /// Spotify offset of the first item. Nonzero for a directly opened page.
+    pub base_offset: u32,
     pub total: Option<u32>,
     pub next_offset: Option<u32>,
     pub loading: bool,
     pub error: Option<String>,
     pub loaded_once: bool,
+    pub revision: u64,
 }
 
 impl<T> Default for PagedList<T> {
     fn default() -> Self {
         Self {
             items: Vec::new(),
+            base_offset: 0,
             total: None,
             next_offset: Some(0),
             loading: false,
             error: None,
             loaded_once: false,
+            revision: 0,
         }
     }
 }
 
 impl<T> PagedList<T> {
     pub fn reset(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            revision: self.revision.wrapping_add(1),
+            ..Default::default()
+        };
     }
 
     pub fn can_load_more(&self) -> bool {
@@ -166,15 +200,20 @@ impl<T> PagedList<T> {
     }
 
     pub fn is_complete(&self) -> bool {
-        self.loaded_once && self.next_offset.is_none()
+        self.loaded_once && self.base_offset == 0 && self.next_offset.is_none()
     }
 
     pub fn absorb(&mut self, offset: u32, page: Page_<T>) {
         if offset == 0 {
             self.items.clear();
+            self.base_offset = 0;
+        } else if !self.loaded_once {
+            self.items.clear();
+            self.base_offset = offset;
         }
-        if (offset as usize) < self.items.len() {
-            self.items.truncate(offset as usize);
+        let relative = offset.saturating_sub(self.base_offset) as usize;
+        if relative < self.items.len() {
+            self.items.truncate(relative);
         }
         let next_offset = page.next_offset();
         self.items.extend(page.items);
@@ -183,6 +222,35 @@ impl<T> PagedList<T> {
         self.loading = false;
         self.error = None;
         self.loaded_once = true;
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    pub fn retain<F>(&mut self, f: F)
+    where
+        F: FnMut(&T) -> bool,
+    {
+        self.items.retain(f);
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    pub fn reorder(&mut self, from: usize, to: usize) {
+        if from < self.items.len() && to <= self.items.len() {
+            let item = self.items.remove(from);
+            let insert_at = if to > from { to - 1 } else { to };
+            self.items.insert(insert_at.min(self.items.len()), item);
+            self.revision = self.revision.wrapping_add(1);
+        }
+    }
+
+    pub fn restore_cached(&mut self, items: Vec<T>, total: u32, next_offset: Option<u32>) {
+        self.items = items;
+        self.base_offset = 0;
+        self.total = Some(total);
+        self.next_offset = next_offset;
+        self.loading = false;
+        self.loaded_once = true;
+        self.error = None;
+        self.revision = self.revision.wrapping_add(1);
     }
 
     pub fn fail(&mut self, error: String) {
@@ -190,9 +258,37 @@ impl<T> PagedList<T> {
         self.error = Some(error);
         self.loaded_once = true;
     }
+
+    pub fn reset_at(&mut self, offset: u32) {
+        self.reset();
+        self.base_offset = offset;
+        self.next_offset = Some(offset);
+    }
 }
 
 type Page_<T> = crate::api::models::Page<T>;
+
+/// Selected track-table rows for batch actions.
+///
+/// Selection belongs to one page and clears when sorting, filtering, or paging
+/// changes the row order.
+#[derive(Clone, Debug, Default)]
+pub struct RowSelection {
+    pub rows: std::collections::BTreeSet<usize>,
+    /// Row used as the anchor for shift-click ranges.
+    pub anchor: Option<usize>,
+}
+
+/// Selection behavior for a row click.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowPick {
+    /// Select only this row.
+    Only,
+    /// Toggle this row.
+    Toggle,
+    /// Everything from the anchor to here.
+    Range,
+}
 
 /// A cursor-paginated list (followed artists).
 #[derive(Clone, Debug)]
@@ -311,18 +407,44 @@ pub struct SearchState {
 #[derive(Default)]
 pub struct PlaylistPage {
     pub generation: u64,
+    /// Generation that produced the rows, which may lag during refresh.
+    pub items_generation: u64,
     pub playlist: Loadable<Playlist>,
     pub items: PagedList<PlaylistItem>,
     pub filter: String,
-    /// Ids of everyone who added songs, from the pages seen so far and one
-    /// look at the tail.
+    /// Contributor IDs from loaded pages and a sample of the final page.
     pub contributors: std::collections::BTreeSet<String>,
-    /// Whether the tail was sampled for who added its songs.
+    /// Whether contributors were sampled from the final page.
     pub tail_checked: bool,
-    /// The whole list came from disk and matches the live snapshot.
-    pub cache_complete: bool,
+    /// Whether this generation's disk cache read has finished.
+    pub cache_checked: bool,
+    /// The Spotify offset through which this snapshot is saved on disk.
+    pub cache_saved_through: Option<u32>,
+    /// End of the prefix restored for this generation. An initial response
+    /// below it is stale and must not replace the longer cached prefix.
+    pub cache_restored_through: Option<u32>,
     /// Items read from disk, waiting for the live snapshot to confirm.
-    pub pending_cache: Option<(String, Vec<PlaylistItem>)>,
+    pub pending_cache: Option<PlaylistCache>,
+    /// One-based position entered in the direct page control.
+    pub jump_position: u32,
+    /// Songs added here that may sit beyond the loaded prefix. They are known
+    /// members immediately, even before Spotify's next read catches up.
+    pub local_additions: std::collections::BTreeSet<String>,
+    /// Snapshot returned by the latest successful write. A lagging metadata
+    /// read must not replace it with the snapshot from before that write.
+    pub optimistic_snapshot: Option<String>,
+    /// Number of immediate metadata reads made while Spotify still reported
+    /// the pre-write snapshot.
+    pub snapshot_rechecks: u8,
+}
+
+/// A contiguous playlist prefix on disk, valid for exactly one snapshot.
+#[derive(Clone, Debug)]
+pub struct PlaylistCache {
+    pub snapshot: String,
+    pub items: Vec<PlaylistItem>,
+    pub total: u32,
+    pub next_offset: Option<u32>,
 }
 
 #[derive(Default)]
@@ -397,8 +519,7 @@ pub enum SortColumn {
     Index,
 }
 
-/// One of the things a track row can be part of, for playback context and
-/// for the actions the row offers.
+/// Playback and action context for a track row.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RowContext {
     /// A Spotify context (playlist, album) that can be played from an offset.
@@ -409,29 +530,29 @@ pub enum RowContext {
     },
     /// A loose list of tracks, played as a queue of URIs.
     Uris(Vec<String>),
-    /// A sorted or filtered view of a context: plays exactly the list on
-    /// screen, while the context stays what the interface calls playing.
+    /// A Next up row. Playing it consumes that row and all rows before it.
+    Queue,
+    /// A sorted or filtered context view that plays the displayed rows.
     View {
         uris: Vec<String>,
         context_uri: String,
     },
 }
 
-/// The track in hand while a row is dragged, until a sidebar row takes it.
+/// Track data held during a drag.
 #[derive(Clone, Debug)]
 pub struct DragTrack {
     pub uri: String,
     pub title: String,
-    /// Small cover art for the chip that rides the pointer.
+    /// Cover art for the drag preview.
     pub image: Option<String>,
-    /// Where the drag began when it began on an editable playlist: that
-    /// playlist's id and the row's real index, so the same table can move
-    /// the row instead of copying it. The sidebar ignores this.
+    /// Full row data, so dropping can update an open playlist immediately.
+    pub item: PlayableItem,
+    /// Source playlist ID and row index for moves within an editable playlist.
     pub from: Option<(String, u32)>,
 }
 
-/// A sidebar row in hand while it is dragged to a new place in the
-/// pinned block.
+/// Sidebar entry held during a drag.
 #[derive(Clone, Debug)]
 pub struct DragEntry {
     pub uri: String,
@@ -457,6 +578,12 @@ pub enum Dialog {
         name: String,
         owned: bool,
     },
+    ConfirmPlaylistDuplicates {
+        playlist_id: String,
+        playlist_name: String,
+        items: Vec<PlayableItem>,
+        duplicate_uris: Vec<String>,
+    },
     Shortcuts,
     /// The signed-in account is not Premium, so nothing will play.
     PremiumNeeded,
@@ -475,12 +602,14 @@ pub struct Toast {
     pub created: Instant,
 }
 
-/// What views ask the app to do. Collected while drawing, applied after, so
-/// a view can iterate over app data without fighting the borrow checker.
+/// Actions emitted while drawing and applied afterward to avoid borrow conflicts.
 #[derive(Clone, Debug)]
 pub enum Action {
     Open(Page),
     OpenUri(String),
+    /// A Spotify link from outside the app: its page opens and the window
+    /// comes forward, once the account is signed in.
+    OpenLink(String),
     Back,
     Forward,
     PlayContext {
@@ -497,6 +626,8 @@ pub enum Action {
         uri: String,
         index: u32,
     },
+    /// Spotify's station seeded by this song.
+    PlayTrackRadio(String),
     ShufflePlay(String),
     TogglePlay,
     Next,
@@ -504,7 +635,7 @@ pub enum Action {
     Seek(u32),
     SeekBy(i64),
     SetVolume(u8),
-    /// The slider mid-drag: heard at once, told to Spotify on release.
+    /// Preview volume locally during a drag; send it to Spotify on release.
     PreviewVolume(u8),
     VolumeBy(i8),
     ToggleMute,
@@ -517,10 +648,24 @@ pub enum Action {
         label: String,
     },
     ToggleSaved(String),
+    /// Queue several songs in order and show one notification.
+    QueueMany {
+        songs: Vec<(String, String)>,
+    },
+    /// Set saved state for several songs explicitly.
+    SetSavedMany {
+        uris: Vec<String>,
+        saved: bool,
+    },
     AddToPlaylist {
         playlist_id: String,
         playlist_name: String,
-        uris: Vec<String>,
+        items: Vec<PlayableItem>,
+    },
+    ConfirmAddToPlaylist {
+        playlist_id: String,
+        playlist_name: String,
+        items: Vec<PlayableItem>,
     },
     RemoveFromPlaylist {
         playlist_id: String,
@@ -546,18 +691,29 @@ pub enum Action {
     },
     DeletePlaylist(String),
     Transfer(String),
-    /// Hand the account to a receiver found on the local network.
+    /// Send the account to a receiver found on the local network.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
     RefreshDevices,
+    /// Empty Next up of its queued songs, keeping the context's own.
+    ClearQueue,
+    /// Save the current and upcoming queue as a playlist.
+    SaveQueueAsPlaylist,
     RefreshQueue,
     CopyLink(String),
-    /// A web page, in the browser.
+    /// Open a web page in the browser.
     OpenUrl(String),
     OpenInSpotify(String),
     Search(String),
     SetSearchFilter(SearchFilter),
     FocusSearch,
     LoadMore(Page),
+    JumpToPlaylistPosition {
+        id: String,
+        position: u32,
+    },
+    LoadMoreRecents,
+    ReloadRecents,
+    SetQueueTab(QueueTab),
     LoadMoreArtistAlbums(String),
     SetDiscographyFilter {
         artist_id: String,
@@ -574,11 +730,64 @@ pub enum Action {
     ToggleQueuePanel,
     ToggleLyricsPanel,
     ToggleDevicesPopup,
+    /// Ask GitHub for the latest release and report the result to the user.
+    CheckForUpdates,
     SettingsChanged,
     RestartEngine,
     EnablePlayback,
     ShowWindow,
     HideWindow,
     ClearArtCache,
+    /// Clear local play history.
+    ClearPlayHistory,
+    /// Open or close the Winamp window.
+    ToggleWinampWindow,
+    /// Select a skin, or the built-in skin for `None`.
+    SetSkin(Option<String>),
+    /// Install and select a skin file.
+    InstallSkin(std::path::PathBuf),
+    /// Screen pixels per skin pixel in the Winamp window.
+    SetSkinScale(u8),
+    ToggleWinampOnTop,
+    OpenSkinsFolder,
+    /// Cycle bars, scope, and off.
+    CycleVisualiser,
+    /// Set the visualizer mode directly.
+    SetVisualiser(crate::settings::VisMode),
+    /// Open or close the playlist window under the mini player.
+    ToggleWinampPlaylist,
+    /// The playlist window's height, in skin pixels.
+    SetPlaylistHeight(u32),
+    /// Open or close the equalizer window under the mini player.
+    ToggleWinampEq,
+    /// Switch the equalizer's effect on the sound on or off.
+    ToggleEq,
+    SetEqBand(usize, f32),
+    SetEqPreamp(f32),
+    /// One of Winamp's presets, by its place in the list.
+    ApplyEqPreset(usize),
+    /// The balance, -1 all left to 1 all right.
+    SetBalance(f32),
+    ToggleMono,
+    /// Roll the playlist window up to its title bar, or down again.
+    ToggleWinampPlaylistShade,
+    /// Roll the equalizer window up to its title bar, or down again.
+    ToggleWinampEqShade,
+    /// Close the window the way its close button does: into the tray when
+    /// that is on, out of the app otherwise.
+    CloseWindow,
+    /// Roll the main window up to its title bar, or down again.
+    ToggleWinampShade,
+    /// Open or close the MilkDrop window.
+    ToggleWinampMilkdrop,
+    /// How long each MilkDrop preset plays, in seconds.
+    SetMilkdropSeconds(u32),
+    SetMilkdropScale(u32),
+    /// How many frames a second the MilkDrop window draws; 0 is uncapped.
+    SetMilkdropFps(u32),
+    OpenMilkdropFolder,
+    /// Fetch one of projectM's preset packs into the folder, by its place
+    /// in the list.
+    DownloadMilkdropPack(usize),
     Quit,
 }

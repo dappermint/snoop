@@ -56,7 +56,7 @@ fn enable_playback_row(app: &mut App, ui: &mut egui::Ui) {
         if authorizing {
             "Setting up…"
         } else {
-            "Play here, set up once"
+            "Set up playback here"
         },
         theme::regular(12.0),
         palette.accent,
@@ -104,9 +104,11 @@ fn receiver_row(app: &mut App, ui: &mut egui::Ui, receiver: &crate::zeroconf::Re
         .image(palette.text, 22.0)
         .paint_at(ui, icon_rect);
     let painter = ui.painter().with_clip_rect(rect);
-    painter.text(
-        pos2(rect.left() + 48.0, rect.center().y - 9.0),
-        egui::Align2::LEFT_CENTER,
+    crate::bidi::paint_line(
+        &painter,
+        rect.left() + 48.0,
+        rect.right() - 12.0,
+        rect.center().y - 9.0,
         &receiver.name,
         theme::medium(14.0),
         palette.text,
@@ -117,7 +119,7 @@ fn receiver_row(app: &mut App, ui: &mut egui::Ui, receiver: &crate::zeroconf::Re
         if activating {
             "Connecting…"
         } else {
-            "On your network, tap to connect"
+            "On your network, click to connect"
         },
         theme::regular(12.0),
         palette.secondary,
@@ -229,7 +231,7 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                     theme::subtle(
                         ui,
                         &palette,
-                        "No devices found. Open Spotify on another device to see it here.",
+                        "No devices found. Open Spotify on another device, then refresh.",
                     );
                     ui.add_space(8.0);
                 }
@@ -260,10 +262,12 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                         .image(color, 22.0)
                         .paint_at(ui, icon_rect);
                     let painter = ui.painter().with_clip_rect(rect);
-                    painter.text(
-                        pos2(rect.left() + 48.0, rect.center().y - 9.0),
-                        egui::Align2::LEFT_CENTER,
-                        name,
+                    crate::bidi::paint_line(
+                        &painter,
+                        rect.left() + 48.0,
+                        rect.right() - 12.0,
+                        rect.center().y - 9.0,
+                        &name,
                         theme::medium(14.0),
                         color,
                     );

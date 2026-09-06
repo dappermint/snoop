@@ -1,4 +1,4 @@
-//! The bridge between the interface thread and everything asynchronous.
+//! Bridge between the UI thread and asynchronous work.
 //!
 //! egui runs on the main thread and must never block. A dedicated tokio
 //! runtime hosts the librespot engine, the Web API client, sign-in, and
@@ -18,6 +18,7 @@ use crate::api::{
     SessionState, TokenProvider, WebTokens,
 };
 use crate::images::{ArtLoader, accent_color};
+use crate::model::PlaylistCache;
 use crate::paths::AppDirs;
 use crate::player::{Engine, EngineConfig, EngineEvent, LoadSpec, LocalState, PlayerCommand};
 
@@ -48,6 +49,14 @@ pub enum RemoteAction {
     Repeat,
 }
 
+/// Which of the two readers of the recently-played endpoint an answer
+/// belongs to: the shelf on Home, or the Recents tab in the queue panel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecentsFor {
+    Home,
+    Panel,
+}
+
 #[derive(Clone, Debug)]
 pub enum ApiRequest {
     Me,
@@ -55,9 +64,16 @@ pub enum ApiRequest {
     PlaybackState {
         seq: u64,
     },
-    Queue,
+    Queue {
+        seq: u64,
+    },
     RecentlyPlayed {
+        /// Request owner. Home and Recents use separate generation counters,
+        /// so generation alone cannot route the response.
+        who: RecentsFor,
         generation: u64,
+        before: Option<String>,
+        limit: u32,
     },
     TopTracks {
         offset: u32,
@@ -105,6 +121,11 @@ pub enum ApiRequest {
         name: Option<String>,
         description: Option<String>,
         public: Option<bool>,
+    },
+    CheckPlaylistDuplicates {
+        playlist_id: String,
+        playlist_name: String,
+        items: Vec<PlayableItem>,
     },
     AddToPlaylist {
         playlist_id: String,
@@ -183,6 +204,11 @@ pub enum ApiRequest {
     Track {
         id: String,
     },
+    /// One episode, asked for by a link to it: the podcast it belongs to
+    /// is the page that opens.
+    Episode {
+        id: String,
+    },
     Remote {
         action: RemoteAction,
         device_id: Option<String>,
@@ -234,10 +260,15 @@ pub enum ApiResponse {
         seq: u64,
         result: ApiResult<Option<PlaybackState>>,
     },
-    Queue(ApiResult<Queue>),
+    Queue {
+        seq: u64,
+        result: ApiResult<Queue>,
+    },
     RecentlyPlayed {
+        who: RecentsFor,
         generation: u64,
-        result: ApiResult<Vec<PlayHistory>>,
+        limit: u32,
+        result: ApiResult<CursorPage<PlayHistory>>,
     },
     TopTracks {
         offset: u32,
@@ -282,6 +313,12 @@ pub enum ApiResponse {
     PlaylistUpdated {
         id: String,
         result: ApiResult<()>,
+    },
+    PlaylistDuplicatesChecked {
+        playlist_id: String,
+        playlist_name: String,
+        items: Vec<PlayableItem>,
+        result: ApiResult<Vec<String>>,
     },
     PlaylistItemsChanged {
         id: String,
@@ -367,6 +404,10 @@ pub enum ApiResponse {
         id: String,
         result: ApiResult<Track>,
     },
+    Episode {
+        id: String,
+        result: ApiResult<Episode>,
+    },
     Remote {
         action: RemoteAction,
         result: ApiResult<()>,
@@ -430,23 +471,33 @@ pub enum Command {
     Reconnect,
     /// Look for Spotify Connect receivers on the local network.
     DiscoverReceivers,
-    /// Hand the account to a receiver so it joins Spotify Connect.
+    /// Send the account to a receiver so it joins Spotify Connect.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
-    /// Ask GitHub whether a newer release exists.
-    CheckForUpdates,
+    /// Ask GitHub whether a newer release exists. Manual checks report every
+    /// outcome; the daily check only announces a new release.
+    CheckForUpdates {
+        manual: bool,
+    },
     /// The words of a track, from LRCLIB.
     Lyrics(Box<LyricsRequest>),
+    /// The account's playlist tree, folders and all, from the session.
+    Rootlist,
+    /// Check that a reconnect's pickup really started, and try again if not.
+    VerifyResume,
     /// Add, replace, or remove the optional personal Web API application.
     ConfigurePersonalWebApp(Option<String>),
     /// Read a playlist's cached items from disk.
     LoadPlaylistCache {
         id: String,
+        generation: u64,
     },
-    /// Remember a fully loaded playlist on disk under its snapshot.
+    /// Remember a playlist prefix on disk under its snapshot.
     StorePlaylistCache {
         id: String,
         snapshot: String,
         items: Vec<PlaylistItem>,
+        total: u32,
+        next_offset: Option<u32>,
     },
     /// Resolve user ids to display names through the streaming session.
     UserNames(Vec<String>),
@@ -474,22 +525,27 @@ pub enum Event {
         color: [u8; 3],
     },
     Error(String),
-    /// A newer release than this build exists.
-    UpdateAvailable {
-        version: String,
-        url: String,
+    /// GitHub answered an update check, or the request failed.
+    UpdateChecked {
+        manual: bool,
+        result: Result<Option<crate::updates::Release>, String>,
     },
-    /// The words of a track, or `None` when nobody has transcribed it.
+    /// Track lyrics, or `None` when unavailable.
     Lyrics {
         uri: String,
         result: Result<Option<crate::lyrics::Lyrics>, String>,
     },
-    /// A playlist's items as last cached, with the snapshot they belong to.
+    /// The account's playlist tree, folders and all, and which of its
+    /// playlists take songs from this account.
+    Rootlist {
+        result: Result<crate::player::Rootlist, String>,
+    },
+    /// The result of reading a playlist cache for this load generation.
     PlaylistCache {
         account_id: String,
         id: String,
-        snapshot: String,
-        items: Vec<PlaylistItem>,
+        generation: u64,
+        cache: Option<PlaylistCache>,
     },
     /// A user id resolved to a display name (`None` when nothing answers).
     UserName {
@@ -551,6 +607,10 @@ pub struct Backend {
     activity: Arc<NetActivity>,
     thread: Option<std::thread::JoinHandle<()>>,
     offline: bool,
+    #[cfg(test)]
+    playlist_item_requests: std::sync::Mutex<Vec<(String, u32, u64)>>,
+    #[cfg(test)]
+    playlist_sample_requests: std::sync::Mutex<Vec<(String, u32, u64)>>,
 }
 
 impl Backend {
@@ -608,6 +668,10 @@ impl Backend {
             activity,
             thread: Some(thread),
             offline: false,
+            #[cfg(test)]
+            playlist_item_requests: std::sync::Mutex::new(Vec::new()),
+            #[cfg(test)]
+            playlist_sample_requests: std::sync::Mutex::new(Vec::new()),
         }
     }
 
@@ -631,7 +695,51 @@ impl Backend {
     }
 
     pub fn api(&self, request: ApiRequest) {
+        #[cfg(test)]
+        if let ApiRequest::PlaylistItems {
+            id,
+            offset,
+            generation,
+        } = &request
+        {
+            self.playlist_item_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push((id.clone(), *offset, *generation));
+        }
+        #[cfg(test)]
+        if let ApiRequest::PlaylistSample {
+            id,
+            offset,
+            generation,
+        } = &request
+        {
+            self.playlist_sample_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push((id.clone(), *offset, *generation));
+        }
         self.send(Command::Api(request));
+    }
+
+    #[cfg(test)]
+    pub fn take_playlist_item_requests(&self) -> Vec<(String, u32, u64)> {
+        std::mem::take(
+            &mut *self
+                .playlist_item_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    }
+
+    #[cfg(test)]
+    pub fn take_playlist_sample_requests(&self) -> Vec<(String, u32, u64)> {
+        std::mem::take(
+            &mut *self
+                .playlist_sample_requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
     }
 
     pub fn player(&self, command: PlayerCommand) {
@@ -679,6 +787,8 @@ struct Worker {
     /// What the engine was playing when it went down, to load again once
     /// the next one is up.
     resume: Option<LoadSpec>,
+    /// A pickup in flight: the load to repeat and how often it was tried.
+    resume_verify: Option<(LoadSpec, u8)>,
 }
 
 impl Worker {
@@ -714,6 +824,7 @@ impl Worker {
             pending_authorization: None,
             reconnects: Vec::new(),
             resume: None,
+            resume_verify: None,
         }
     }
 
@@ -798,14 +909,23 @@ impl Worker {
                 Command::Reconnect => self.reconnect_engine(),
                 Command::DiscoverReceivers => self.discover_receivers(),
                 Command::ActivateReceiver(receiver) => self.activate_receiver(*receiver),
-                Command::CheckForUpdates => self.check_for_updates(),
+                Command::CheckForUpdates { manual } => self.check_for_updates(manual),
                 Command::Lyrics(request) => self.fetch_lyrics(*request),
-                Command::LoadPlaylistCache { id } => self.load_playlist_cache(id),
+                Command::Rootlist => self.fetch_rootlist(),
+                Command::VerifyResume => self.verify_resume(),
+                Command::LoadPlaylistCache { id, generation } => {
+                    self.load_playlist_cache(id, generation)
+                }
                 Command::StorePlaylistCache {
                     id,
                     snapshot,
                     items,
-                } => self.store_playlist_cache(id, snapshot, items),
+                    total,
+                    next_offset,
+                } => {
+                    self.store_playlist_cache(id, snapshot, items, total, next_offset)
+                        .await
+                }
                 Command::UserNames(ids) => self.fetch_user_names(ids),
                 Command::ConfigurePersonalWebApp(client_id) => {
                     self.configure_personal_web_app(client_id)
@@ -827,7 +947,7 @@ impl Worker {
                 self.on_web_signed_in(ApiSource::Shared, token);
             }
             Some(_) => self.emit(Event::Auth(AuthStatus::Failed(
-                "Snoop needs one more Spotify permission. Please sign in again.".into(),
+                "Spotify permissions changed. Sign in again.".into(),
             ))),
             None => self.emit(Event::Auth(AuthStatus::SignedOut)),
         }
@@ -997,9 +1117,12 @@ impl Worker {
                 url: flow.url.clone(),
             }));
         }
-        if let Err(error) = open::that_detached(&flow.url) {
-            log::warn!("unable to open a browser: {error}");
-        }
+        let browser_url = flow.url.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = crate::opener::open(&browser_url) {
+                log::warn!("unable to open a browser: {error}");
+            }
+        });
         let http = self.http.clone();
         let events = self.events.clone();
         let waker = self.waker.clone();
@@ -1119,6 +1242,7 @@ impl Worker {
         if !self.signed_in {
             return;
         }
+        self.resume_verify = None;
         if let Some(engine) = self.engine.take() {
             self.resume = engine.interrupted().map(|interrupted| LoadSpec {
                 uris: vec![interrupted.uri],
@@ -1164,9 +1288,12 @@ impl Worker {
         let (cancel_tx, cancel_rx) = watch::channel(false);
         self.cancel_signin = Some(cancel_tx);
         self.emit(Event::Playback(LocalPlayback::Authorizing));
-        if let Err(error) = open::that_detached(&flow.url) {
-            log::warn!("unable to open a browser: {error}");
-        }
+        let browser_url = flow.url.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Err(error) = crate::opener::open(&browser_url) {
+                log::warn!("unable to open a browser: {error}");
+            }
+        });
         let http = self.http.clone();
         let events = self.events.clone();
         let waker = self.waker.clone();
@@ -1266,14 +1393,11 @@ impl Worker {
                 let device_id = engine.device_id().to_string();
                 let engine = Arc::new(engine);
                 if let Some(spec) = self.resume.take() {
-                    log::info!(
-                        "picking {} up again at {} ms on the new session",
-                        spec.uris.join(" "),
-                        spec.position_ms
-                    );
-                    if let Err(error) = engine.command(PlayerCommand::Load(spec)) {
-                        log::warn!("unable to pick playback up again: {error}");
-                    }
+                    // Delay resume until Spirc finishes registering. An early
+                    // load can return 400 and leave playback stopped. Verify
+                    // the load and retry if needed.
+                    self.resume_verify = Some((spec, 0));
+                    self.schedule_resume_check(1_500);
                 }
                 self.engine = Some(engine);
                 self.reconnects.clear();
@@ -1287,11 +1411,9 @@ impl Worker {
         }
     }
 
-    /// The plan gates the engine because librespot 0.8 calls `exit(1)` from
-    /// inside its session the moment Spotify tells it the account is not
-    /// Premium; no error path of ours can catch that, so a Free account must
-    /// never reach it. When the API cannot say, the engine comes back as it
-    /// always did.
+    /// Starts the engine only for Premium accounts. librespot 0.8 calls
+    /// `exit(1)` for Free accounts, which cannot be caught. If the plan is
+    /// unknown, preserve the previous behavior and start the engine.
     fn on_account_checked(&mut self, premium: Option<bool>) {
         self.premium = premium;
         if premium == Some(false) {
@@ -1332,8 +1454,7 @@ impl Worker {
         });
     }
 
-    /// Hands the stored playback credential to a receiver, which makes it log
-    /// in and appear in the ordinary device list.
+    /// Sends the stored playback credential to a receiver so it can sign in.
     fn activate_receiver(&self, receiver: crate::zeroconf::Receiver) {
         let events = self.events.clone();
         let waker = self.waker.clone();
@@ -1360,22 +1481,70 @@ impl Worker {
         });
     }
 
-    fn check_for_updates(&self) {
+    fn check_for_updates(&self, manual: bool) {
         let http = self.http.clone();
         let events = self.events.clone();
         let waker = self.waker.clone();
         tokio::spawn(async move {
-            match crate::updates::newer_release(&http).await {
-                Ok(Some(release)) => {
-                    let _ = events.send(Event::UpdateAvailable {
-                        version: release.version,
-                        url: release.url,
-                    });
-                    waker.wake();
-                }
-                Ok(None) => log::debug!("this is the newest release"),
-                Err(error) => log::debug!("could not check for a newer release: {error:#}"),
-            }
+            let result = crate::updates::newer_release(&http)
+                .await
+                .map_err(|error| format!("{error:#}"));
+            let _ = events.send(Event::UpdateChecked { manual, result });
+            waker.wake();
+        });
+    }
+
+    /// Verifies playback after reconnect and retries loads rejected while
+    /// Spirc is still registering. Runs on the backend timer.
+    fn verify_resume(&mut self) {
+        let Some((spec, attempts)) = self.resume_verify.take() else {
+            return;
+        };
+        let Some(engine) = &self.engine else {
+            return;
+        };
+        if engine.interrupted().is_some() {
+            // Playback resumed or another track started.
+            return;
+        }
+        if attempts >= 3 {
+            log::warn!("gave up picking playback up again after {attempts} tries");
+            return;
+        }
+        log::info!(
+            "picking {} up again at {} ms on the new session (try {})",
+            spec.uris.join(" "),
+            spec.position_ms,
+            attempts + 1
+        );
+        if let Err(error) = engine.command(PlayerCommand::Load(spec.clone())) {
+            log::warn!("unable to pick playback up again: {error}");
+        }
+        self.resume_verify = Some((spec, attempts + 1));
+        self.schedule_resume_check(4_000);
+    }
+
+    fn schedule_resume_check(&self, delay_ms: u64) {
+        let commands = self.commands.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            let _ = commands.send(Command::VerifyResume);
+        });
+    }
+
+    fn fetch_rootlist(&self) {
+        let Some(engine) = self.engine.clone() else {
+            return;
+        };
+        let events = self.events.clone();
+        let waker = self.waker.clone();
+        tokio::spawn(async move {
+            let result = engine
+                .rootlist()
+                .await
+                .map_err(|error| format!("{error:#}"));
+            let _ = events.send(Event::Rootlist { result });
+            waker.wake();
         });
     }
 
@@ -1403,10 +1572,9 @@ impl Worker {
         });
     }
 
-    /// Hand the interface a playlist's cached items, if any are on disk.
-    /// Whether they are still true is the interface's call: it compares
-    /// the snapshot against the live playlist before adopting them.
-    fn load_playlist_cache(&self, id: String) {
+    /// Loads cached playlist items. The UI compares the cached snapshot with
+    /// the live playlist before using them.
+    fn load_playlist_cache(&self, id: String, generation: u64) {
         let Some(account) = self.api.account() else {
             return;
         };
@@ -1418,23 +1586,44 @@ impl Worker {
             .join(format!("{id}.json"));
         let account_id = account.as_str().to_string();
         tokio::spawn(async move {
-            let Ok(text) = tokio::fs::read_to_string(&path).await else {
-                return;
-            };
-            let Ok(cached) = serde_json::from_str::<CachedPlaylist>(&text) else {
-                return;
-            };
+            let cache = tokio::fs::read_to_string(&path)
+                .await
+                .ok()
+                .and_then(|text| serde_json::from_str::<CachedPlaylist>(&text).ok())
+                .and_then(|cached| {
+                    let total = cached
+                        .total
+                        .unwrap_or_else(|| cached.items.len().try_into().unwrap_or(u32::MAX));
+                    if cached.items.len() > total as usize
+                        || cached.next_offset.is_some_and(|offset| offset > total)
+                    {
+                        return None;
+                    }
+                    Some(PlaylistCache {
+                        snapshot: cached.snapshot,
+                        items: cached.items,
+                        total,
+                        next_offset: cached.next_offset,
+                    })
+                });
             let _ = events.send(Event::PlaylistCache {
                 account_id,
                 id,
-                snapshot: cached.snapshot,
-                items: cached.items,
+                generation,
+                cache,
             });
             waker.wake();
         });
     }
 
-    fn store_playlist_cache(&self, id: String, snapshot: String, items: Vec<PlaylistItem>) {
+    async fn store_playlist_cache(
+        &self,
+        id: String,
+        snapshot: String,
+        items: Vec<PlaylistItem>,
+        total: u32,
+        next_offset: Option<u32>,
+    ) {
         let Some(account) = self.api.account() else {
             return;
         };
@@ -1442,17 +1631,15 @@ impl Worker {
             .dirs
             .account_playlist_cache_dir(account.as_str())
             .join(format!("{id}.json"));
-        tokio::spawn(async move {
-            if let Some(parent) = path.parent() {
-                let _ = tokio::fs::create_dir_all(parent).await;
-            }
-            if let Ok(text) = serde_json::to_string(&CachedPlaylist { snapshot, items }) {
-                let temporary = path.with_extension("json.tmp");
-                if tokio::fs::write(&temporary, text).await.is_ok() {
-                    let _ = tokio::fs::rename(temporary, path).await;
-                }
-            }
-        });
+        let cached = CachedPlaylist {
+            snapshot,
+            items,
+            total: Some(total),
+            next_offset,
+        };
+        if let Err(error) = write_cached_playlist(&path, &cached).await {
+            log::warn!("unable to store playlist cache {}: {error}", path.display());
+        }
     }
 
     /// Ask Spotify who is behind each user id. Only the streaming session
@@ -1549,7 +1736,7 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         ApiRequest::Me => Operation::CanonicalAccount,
         ApiRequest::Devices
         | ApiRequest::PlaybackState { .. }
-        | ApiRequest::Queue
+        | ApiRequest::Queue { .. }
         | ApiRequest::Remote { .. }
         | ApiRequest::Transfer { .. }
         | ApiRequest::ShufflePlay { .. }
@@ -1575,9 +1762,11 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         ApiRequest::CreatePlaylist { .. } => Operation::PlaylistCreation,
         ApiRequest::Discover { .. } | ApiRequest::Search { .. } => Operation::PlaylistSearch,
         ApiRequest::Playlist { id, .. } => Operation::PlaylistMetadata(api.playlist_access(id)),
-        ApiRequest::PlaylistItems { id, .. } | ApiRequest::PlaylistSample { id, .. } => {
-            Operation::PlaylistItems(api.playlist_access(id))
-        }
+        ApiRequest::PlaylistItems { id, .. }
+        | ApiRequest::PlaylistSample { id, .. }
+        | ApiRequest::CheckPlaylistDuplicates {
+            playlist_id: id, ..
+        } => Operation::PlaylistItems(api.playlist_access(id)),
         ApiRequest::UpdatePlaylist { id, .. } | ApiRequest::FollowPlaylist { id, .. } => {
             Operation::PlaylistMutation(api.playlist_access(id))
         }
@@ -1595,7 +1784,8 @@ fn operation_for(api: &ApiGateway, request: &ApiRequest) -> Operation {
         | ApiRequest::AlbumTracks { .. }
         | ApiRequest::Show { .. }
         | ApiRequest::ShowEpisodes { .. }
-        | ApiRequest::Track { .. } => Operation::Catalog,
+        | ApiRequest::Track { .. }
+        | ApiRequest::Episode { .. } => Operation::Catalog,
     }
 }
 
@@ -1640,6 +1830,11 @@ fn observe_playlists(api: &ApiGateway, response: &ApiResponse) {
             result: Err(error),
             ..
         }
+        | ApiResponse::PlaylistDuplicatesChecked {
+            playlist_id: id,
+            result: Err(error),
+            ..
+        }
         | ApiResponse::PlaylistFollowChanged {
             id,
             result: Err(error),
@@ -1674,10 +1869,20 @@ async fn handle(api: &ApiGateway, request: ApiRequest) -> (ApiResponse, Option<A
             seq,
             result: routed!(playback_state()),
         },
-        ApiRequest::Queue => ApiResponse::Queue(routed!(queue())),
-        ApiRequest::RecentlyPlayed { generation } => ApiResponse::RecentlyPlayed {
+        ApiRequest::Queue { seq } => ApiResponse::Queue {
+            seq,
+            result: routed!(queue()),
+        },
+        ApiRequest::RecentlyPlayed {
+            who,
             generation,
-            result: routed!(recently_played(50)).map(|page| page.items),
+            before,
+            limit,
+        } => ApiResponse::RecentlyPlayed {
+            who,
+            generation,
+            limit,
+            result: routed!(recently_played(limit, None, before.as_deref())),
         },
         ApiRequest::TopTracks {
             offset,
@@ -1757,6 +1962,19 @@ async fn handle(api: &ApiGateway, request: ApiRequest) -> (ApiResponse, Option<A
             )),
             id,
         },
+        ApiRequest::CheckPlaylistDuplicates {
+            playlist_id,
+            playlist_name,
+            items,
+        } => {
+            let uris: Vec<String> = items.iter().map(|item| item.uri().to_string()).collect();
+            ApiResponse::PlaylistDuplicatesChecked {
+                result: routed!(playlist_duplicates(&playlist_id, &uris)),
+                playlist_id,
+                playlist_name,
+                items,
+            }
+        }
         ApiRequest::AddToPlaylist {
             playlist_id,
             playlist_name,
@@ -1884,6 +2102,10 @@ async fn handle(api: &ApiGateway, request: ApiRequest) -> (ApiResponse, Option<A
             result: routed!(track(&id)),
             id,
         },
+        ApiRequest::Episode { id } => ApiResponse::Episode {
+            result: routed!(episode(&id)),
+            id,
+        },
         ApiRequest::Remote {
             action,
             device_id,
@@ -1965,4 +2187,67 @@ async fn spotify_lyrics(
 struct CachedPlaylist {
     snapshot: String,
     items: Vec<PlaylistItem>,
+    /// Absent in the original whole-playlist cache format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    total: Option<u32>,
+    /// A value means this is a prefix. Absent means the cache is complete.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    next_offset: Option<u32>,
+}
+
+async fn write_cached_playlist(
+    path: &std::path::Path,
+    cached: &CachedPlaylist,
+) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let text = serde_json::to_vec(cached).map_err(std::io::Error::other)?;
+    let temporary = path.with_extension("json.tmp");
+    tokio::fs::write(&temporary, text).await?;
+    crate::util::replace_file(&temporary, path)
+}
+
+#[cfg(test)]
+mod playlist_cache_tests {
+    use super::{CachedPlaylist, write_cached_playlist};
+
+    #[test]
+    fn the_original_complete_cache_format_remains_readable() {
+        let cached: CachedPlaylist =
+            serde_json::from_str(r#"{"snapshot":"old","items":[]}"#).unwrap();
+
+        assert_eq!(cached.snapshot, "old");
+        assert_eq!(cached.total, None);
+        assert_eq!(cached.next_offset, None);
+    }
+
+    #[tokio::test]
+    async fn a_new_checkpoint_atomically_replaces_the_previous_one() {
+        let root = std::env::temp_dir().join(format!(
+            "fastpotify-playlist-cache-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let path = root.join("playlist.json");
+        let cached = |snapshot: &str| CachedPlaylist {
+            snapshot: snapshot.into(),
+            items: Vec::new(),
+            total: Some(10_000),
+            next_offset: Some(500),
+        };
+
+        write_cached_playlist(&path, &cached("first"))
+            .await
+            .unwrap();
+        write_cached_playlist(&path, &cached("second"))
+            .await
+            .unwrap();
+
+        let text = tokio::fs::read_to_string(&path).await.unwrap();
+        let stored: CachedPlaylist = serde_json::from_str(&text).unwrap();
+        assert_eq!(stored.snapshot, "second");
+        assert!(!path.with_extension("json.tmp").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

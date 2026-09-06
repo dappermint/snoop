@@ -23,7 +23,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
     let panel = egui::Panel::right("lyrics-panel")
         .resizable(true)
         .default_size(app.settings.lyrics_width)
-        .size_range(280.0..=640.0)
+        .size_range(theme::SIDE_PANEL_MIN_WIDTH..=640.0)
         .show_separator_line(false)
         .frame(
             Frame::new()
@@ -31,6 +31,13 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 .inner_margin(Margin::symmetric(12, 12)),
         );
     let response = panel.show(ui, |ui| {
+        let window_controls = super::window_controls_reservation(
+            ui.ctx(),
+            app.show_queue_panel,
+            app.show_lyrics_panel,
+            ui.available_width(),
+        );
+        ui.add_space(window_controls.lyrics_top);
         ui.horizontal(|ui| {
             ui.add_space(4.0);
             theme::text(ui, "Lyrics", theme::bold(18.0), palette.text);
@@ -68,7 +75,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
             &palette,
             Icon::Mic,
             "Nothing playing",
-            "Play something and its words show up here.",
+            "Play a song to see its lyrics.",
         );
         return;
     };
@@ -93,7 +100,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 &palette,
                 Icon::Mic,
                 "No lyrics",
-                "No lyrics found for this one.",
+                "No lyrics found for this track.",
             );
             return;
         }
@@ -103,7 +110,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 &palette,
                 Icon::Music,
                 "Instrumental",
-                "No words to follow on this one.",
+                "No timed lyrics for this track.",
             );
             return;
         }
@@ -154,10 +161,23 @@ fn contents(app: &mut App, ui: &mut egui::Ui) {
                 } else {
                     Sense::hover()
                 };
-                let response = ui.add(
-                    egui::Label::new(egui::RichText::new(text).font(font).color(color))
-                        .sense(sense),
-                );
+                let response = if crate::bidi::is_rtl(text) {
+                    let galley = crate::bidi::layout(
+                        ui.painter(),
+                        text,
+                        font,
+                        color,
+                        ui.available_width(),
+                        usize::MAX,
+                        None,
+                    );
+                    ui.add(egui::Label::new(galley).sense(sense))
+                } else {
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(text).font(font).color(color))
+                            .sense(sense),
+                    )
+                };
                 let rect = response.rect;
                 if lyrics.synced {
                     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);

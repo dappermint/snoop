@@ -1,4 +1,4 @@
-//! Formatting helpers shared by every view.
+//! Small helpers shared across the application.
 
 /// `3:45` for track lengths, `1:02:03` past an hour.
 pub fn format_duration_ms(ms: u32) -> String {
@@ -78,6 +78,35 @@ pub fn format_date(iso: &str) -> String {
         Some(day) => format!("{month_name} {day}, {year}"),
         None => format!("{month_name} {year}"),
     }
+}
+
+/// `5 minutes ago` for recent ISO-8601 timestamps, otherwise the usual date.
+///
+/// Dates are shown relatively for their first 30 days, matching the playlist
+/// table's compact, time-aware presentation. `now` is an argument so callers
+/// can render against one instant and the boundary behaviour stays testable.
+pub fn format_relative_date(iso: &str, now: jiff::Timestamp) -> String {
+    let Ok(added) = iso.parse::<jiff::Timestamp>() else {
+        return format_date(iso);
+    };
+    let seconds = added.duration_until(now).as_secs_f64().floor() as i64;
+    if !(0..30 * 24 * 60 * 60).contains(&seconds) {
+        return format_date(iso);
+    }
+
+    let (count, unit) = if seconds < 60 {
+        (seconds, "second")
+    } else if seconds < 60 * 60 {
+        (seconds / 60, "minute")
+    } else if seconds < 24 * 60 * 60 {
+        (seconds / (60 * 60), "hour")
+    } else if seconds < 7 * 24 * 60 * 60 {
+        (seconds / (24 * 60 * 60), "day")
+    } else {
+        (seconds / (7 * 24 * 60 * 60), "week")
+    };
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} {unit}{plural} ago")
 }
 
 /// Tears the id out of `spotify:track:abc` and friends.
@@ -190,9 +219,46 @@ pub fn strip_html(text: &str) -> String {
         .replace("&quot;", "\"")
         .replace("&#x27;", "'")
         .replace("&#39;", "'")
+        .replace("&#x2F;", "/")
         .replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&#x2F;", "/")
+}
+
+/// Atomically replaces `path` with `temporary` on the current platform.
+#[cfg(not(windows))]
+pub(crate) fn replace_file(
+    temporary: &std::path::Path,
+    path: &std::path::Path,
+) -> std::io::Result<()> {
+    std::fs::rename(temporary, path)
+}
+
+/// Atomically replaces `path` with `temporary` on Windows.
+#[cfg(windows)]
+pub(crate) fn replace_file(
+    temporary: &std::path::Path,
+    path: &std::path::Path,
+) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    };
+
+    let temporary: Vec<u16> = temporary.as_os_str().encode_wide().chain(Some(0)).collect();
+    let path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let moved = unsafe {
+        MoveFileExW(
+            temporary.as_ptr(),
+            path.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if moved == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -215,6 +281,45 @@ mod tests {
         assert_eq!(format_date("2024-01-05T10:00:00Z"), "Jan 5, 2024");
         assert_eq!(format_date("2024-03"), "Mar 2024");
         assert_eq!(format_date("2024"), "2024");
+    }
+
+    #[test]
+    fn recent_dates_are_relative_for_the_first_month() {
+        let now: jiff::Timestamp = "2026-08-31T12:00:00Z".parse().unwrap();
+        assert_eq!(
+            format_relative_date("2026-08-31T11:59:30Z", now),
+            "30 seconds ago"
+        );
+        assert_eq!(
+            format_relative_date("2026-08-31T11:59:00Z", now),
+            "1 minute ago"
+        );
+        assert_eq!(
+            format_relative_date("2026-08-31T11:00:00Z", now),
+            "1 hour ago"
+        );
+        assert_eq!(
+            format_relative_date("2026-08-30T12:00:00Z", now),
+            "1 day ago"
+        );
+        assert_eq!(
+            format_relative_date("2026-08-17T12:00:00Z", now),
+            "2 weeks ago"
+        );
+        assert_eq!(
+            format_relative_date("2026-08-01T12:00:00Z", now),
+            "Aug 1, 2026"
+        );
+    }
+
+    #[test]
+    fn relative_dates_fall_back_for_future_and_invalid_timestamps() {
+        let now: jiff::Timestamp = "2026-08-31T12:00:00Z".parse().unwrap();
+        assert_eq!(
+            format_relative_date("2026-09-01T12:00:00Z", now),
+            "Sep 1, 2026"
+        );
+        assert_eq!(format_relative_date("not-a-date", now), "not-a-date");
     }
 
     #[test]

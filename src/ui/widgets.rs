@@ -6,7 +6,7 @@ use egui::{
 
 use crate::api::models::*;
 use crate::app::App;
-use crate::model::{Action, Dialog, DragEntry, DragTrack, Page, RowContext};
+use crate::model::{Action, Dialog, DragEntry, DragTrack, Page, RowContext, RowPick};
 use crate::theme::{self, Icon, Palette};
 use crate::util;
 
@@ -131,7 +131,10 @@ pub fn virtual_rows(
     let clip = ui.clip_rect();
     let start_y = ui.cursor().top();
     let width = ui.available_width();
-    let first = (((clip.top() - start_y) / row_height).floor().max(0.0) as usize).min(count);
+    // Retain a neighbour on either side so Tab can focus it and scroll it in.
+    let first = (((clip.top() - start_y) / row_height).floor().max(0.0) as usize)
+        .min(count)
+        .saturating_sub(1);
     let last = (((clip.bottom() - start_y) / row_height).ceil().max(0.0) as usize + 1).min(count);
     if first > 0 {
         ui.allocate_space(vec2(width, first as f32 * row_height));
@@ -201,24 +204,26 @@ pub fn menu_item_enabled(
         }
         // A playlist can be named a paragraph; the label ends at the menu's
         // edge instead of running past it.
-        let mut job = egui::text::LayoutJob::simple_singleline(
-            label.to_string(),
+        let galley = crate::bidi::layout(
+            ui.painter(),
+            label,
             theme::regular(13.5),
             color,
+            (rect.right() - 10.0 - x).max(0.0),
+            1,
+            Some(crate::bidi::ELLIPSIS),
         );
-        job.wrap = egui::text::TextWrapping {
-            max_width: (rect.right() - 10.0 - x).max(0.0),
-            max_rows: 1,
-            break_anywhere: true,
-            overflow_character: Some('\u{2026}'),
-        };
-        let galley = ui.painter().layout_job(job);
-        ui.painter().galley(
+        let text_rect = Rect::from_min_max(
             pos2(x, rect.center().y - galley.size().y / 2.0),
-            galley,
-            color,
+            pos2(rect.right() - 10.0, rect.center().y + galley.size().y / 2.0),
         );
+        ui.painter()
+            .galley(crate::bidi::galley_pos(text_rect, &galley), galley, color);
     }
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && ui.is_enabled(), label)
+    });
+    theme::focus_ring(ui, &response);
     let clicked = enabled && response.clicked();
     if clicked {
         ui.close();
@@ -253,7 +258,77 @@ pub fn menu_frame(palette: &Palette) -> egui::Frame {
         })
 }
 
-/// Everything a track (or episode) can be asked to do, as a menu.
+/// Context menu for actions on selected tracks.
+///
+/// Tracks stay in table order rather than selection order.
+pub fn picked_menu(ui: &mut Ui, app: &mut App, songs: &[PlayableItem]) {
+    let palette = app.palette;
+    ui.set_min_width(220.0);
+    ui.set_max_width(300.0);
+    let count = songs.len();
+    let uris: Vec<String> = songs.iter().map(|item| item.uri().to_string()).collect();
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(10.0);
+        ui.label(
+            egui::RichText::new(format!("{count} songs"))
+                .font(theme::medium(12.0))
+                .color(palette.secondary),
+        );
+    });
+    ui.add_space(4.0);
+    menu_separator(ui, &palette);
+    if menu_item(ui, &palette, Some(Icon::ListEnd), "Play next") {
+        app.actions.push(Action::QueueMany {
+            songs: songs
+                .iter()
+                .map(|item| (item.uri().to_string(), item.name().to_string()))
+                .collect(),
+        });
+    }
+    // Set one explicit saved state for the full selection.
+    let all_saved = uris.iter().all(|uri| app.is_saved(uri).unwrap_or(false));
+    let (icon, text) = if all_saved {
+        (Icon::HeartFilled, "Remove from Liked Songs")
+    } else {
+        (Icon::Heart, "Save to Liked Songs")
+    };
+    if menu_item(ui, &palette, Some(icon), text) {
+        app.actions.push(Action::SetSavedMany {
+            uris: uris.clone(),
+            saved: !all_saved,
+        });
+    }
+    let playlists = app.editable_playlists();
+    ui.menu_button("Add to playlist", |ui| {
+        ui.set_min_width(220.0);
+        ui.set_max_width(300.0);
+        if menu_item(ui, &palette, Some(Icon::Plus), "New playlist") {
+            app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
+                name: String::new(),
+                public: false,
+                add_uris: uris.clone(),
+            }));
+        }
+        if !playlists.is_empty() {
+            menu_separator(ui, &palette);
+        }
+        egui::ScrollArea::vertical()
+            .max_height(320.0)
+            .show(ui, |ui| {
+                for (id, name) in &playlists {
+                    if menu_item(ui, &palette, Some(Icon::ListMusic), name) {
+                        app.actions.push(Action::AddToPlaylist {
+                            playlist_id: id.clone(),
+                            playlist_name: name.clone(),
+                            items: songs.to_vec(),
+                        });
+                    }
+                }
+            });
+    });
+}
+
 pub fn item_menu(
     ui: &mut Ui,
     app: &mut App,
@@ -266,7 +341,7 @@ pub fn item_menu(
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
-    if menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
+    if menu_item(ui, &palette, Some(Icon::ListEnd), "Play next") {
         app.actions.push(Action::AddToQueue {
             uri: uri.clone(),
             label: label.clone(),
@@ -304,7 +379,7 @@ pub fn item_menu(
                             app.actions.push(Action::AddToPlaylist {
                                 playlist_id: id.clone(),
                                 playlist_name: name.clone(),
-                                uris: vec![uri.clone()],
+                                items: vec![item.clone()],
                             });
                         }
                     }
@@ -344,6 +419,9 @@ pub fn item_menu(
     menu_separator(ui, &palette);
     match item {
         PlayableItem::Track(track) => {
+            if menu_item(ui, &palette, Some(Icon::Radio), "Go to song radio") {
+                app.actions.push(Action::PlayTrackRadio(uri.clone()));
+            }
             let artists: Vec<&ArtistRef> = track
                 .artists
                 .iter()
@@ -414,7 +492,7 @@ pub fn context_menu_items(
     if kind != "artist" && menu_item(ui, &palette, Some(Icon::Shuffle), "Shuffle play") {
         app.actions.push(Action::ShufflePlay(uri.to_string()));
     }
-    if kind == "album" && menu_item(ui, &palette, Some(Icon::ListEnd), "Add to queue") {
+    if kind == "album" && menu_item(ui, &palette, Some(Icon::ListEnd), "Play next") {
         app.actions.push(Action::AddToQueue {
             uri: uri.to_string(),
             label: name.to_string(),
@@ -474,9 +552,43 @@ pub struct TrackRow<'a> {
     pub added_by: Option<&'a str>,
     pub show_added_by: bool,
     pub compact: bool,
+    /// One line for the name and the artists in a shorter row without the
+    /// cover: the compact track list. `compact` stays the queue's narrow row.
+    pub thin: bool,
     /// Vertical offset while rows part around the slot a dragged row
     /// would land in; 0.0 everywhere else.
     pub shift: f32,
+    /// Whether this row is one of the picked-out ones.
+    pub picked: bool,
+    /// Every picked-out song in this table, in the order they sit in it, so
+    /// the menu can update a destination playlist before Spotify answers.
+    /// Empty where a list does not offer picking.
+    pub picked_songs: &'a [PlayableItem],
+}
+
+/// Draw each credited artist separately so its Spotify id remains clickable.
+pub(crate) fn artist_links(
+    ui: &mut Ui,
+    app: &mut App,
+    artists: &[ArtistRef],
+    font: egui::FontId,
+    color: Color32,
+) {
+    let spacing = ui.spacing().item_spacing;
+    ui.spacing_mut().item_spacing.x = 0.0;
+    for (index, artist) in artists.iter().enumerate() {
+        if index > 0 {
+            theme::text(ui, ", ", font.clone(), color);
+        }
+        if let Some(id) = &artist.id {
+            if theme::link(ui, &artist.name, font.clone(), color).clicked() {
+                app.actions.push(Action::Open(Page::Artist(id.clone())));
+            }
+        } else {
+            theme::text(ui, &artist.name, font.clone(), color);
+        }
+    }
+    ui.spacing_mut().item_spacing = spacing;
 }
 
 /// Column widths of the track table, computed from the available width.
@@ -523,10 +635,32 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
     }
 }
 
-/// Draws a track row; pushes actions for what the user did.
-pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
+/// Draws one song in a list.
+///
+/// Returns the selection behavior for a row-body click. The caller supplies
+/// the display index because sorting and filtering change row positions.
+pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPick> {
+    // Virtual lists reuse the visible slots as they scroll. Keep focus and
+    // accessibility actions attached to the song and its occurrence instead.
+    // Now playing and Next up can both contain the same song at index zero.
+    // Their actions have different meanings, so they must not share an ID.
+    let id = ui.unique_id().with((
+        "track-row",
+        std::mem::discriminant(row.context),
+        row.item.uri(),
+        row.index,
+    ));
+    ui.scope_builder(UiBuilder::new().id(id), |ui| {
+        track_row_contents(ui, app, row)
+    })
+    .inner
+}
+
+fn track_row_contents(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) -> Option<RowPick> {
     let palette = app.palette;
-    let row_height = if row.compact {
+    let row_height = if row.thin {
+        theme::THIN_ROW_HEIGHT
+    } else if row.compact {
         theme::COMPACT_ROW_HEIGHT
     } else {
         theme::ROW_HEIGHT
@@ -534,16 +668,27 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, row_height), Sense::click_and_drag());
     let rect = rect.translate(vec2(0.0, row.shift));
-    if !ui.is_rect_visible(rect) {
-        return;
+    let unavailable = match row.item {
+        PlayableItem::Track(track) => track.is_playable == Some(false) || track.is_local,
+        PlayableItem::Episode(_) => false,
+    };
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Button,
+            ui.is_enabled() && !unavailable,
+            row.picked,
+            format!("Play {}, {}", row.item.name(), row.item.subtitle()),
+        )
+    });
+    if response.gained_focus() {
+        response.scroll_to_me(None);
     }
-    // Moving past the drag threshold puts the track in hand for the sidebar
-    // to catch. egui tells clicks and drags apart by that threshold, so
-    // single click, double click, and the context menu stay as they were.
+    if !ui.is_rect_visible(rect) && !response.has_focus() && !response.clicked() {
+        return None;
+    }
+    // Start a sidebar drag only after egui's drag threshold.
     if row.item.is_track() && response.drag_started_by(egui::PointerButton::Primary) {
-        // A drag that begins on an editable playlist's own row remembers
-        // where, so that playlist's table can move the row while every
-        // other target keeps treating the drop as a copy.
+        // Keep the source index for moves within an editable playlist.
         let from = match row.context {
             RowContext::Context {
                 editable_playlist: Some((id, _)),
@@ -557,23 +702,34 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
                 uri: row.item.uri().to_string(),
                 title: row.item.name().to_string(),
                 image: row.item.image(64).map(str::to_string),
+                item: row.item.clone(),
                 from,
             },
         );
     }
-    let is_current = app
-        .current_track_uri()
-        .is_some_and(|uri| uri == row.item.uri());
+    // A queue row is a position, not the song itself: the same song can
+    // sit in the queue while it plays (a repeat wrapping around, a song
+    // queued twice), and only the Now playing row is the playing one.
+    let is_current = !matches!(row.context, RowContext::Queue)
+        && app
+            .current_track_uri()
+            .is_some_and(|uri| uri == row.item.uri());
     let playing = is_current && app.believed_playing();
-    let hovered = ui.rect_contains_pointer(rect);
-    let unavailable = match row.item {
-        PlayableItem::Track(track) => track.is_playable == Some(false) || track.is_local,
-        PlayableItem::Episode(_) => false,
-    };
-
+    let hovered = ui.rect_contains_pointer(rect) || response.has_focus();
     let row_rect = rect.shrink2(vec2(4.0, 1.0));
     let corner = CornerRadius::same(8);
-    if is_current {
+    if row.picked {
+        // Picked rows read as a block, so a run of them looks like one
+        // thing rather than a stack of hovers. Hovering one still lifts
+        // it, so the pointer is never lost inside the block.
+        ui.painter().rect_filled(
+            row_rect,
+            corner,
+            palette
+                .accent
+                .gamma_multiply(if hovered { 0.30 } else { 0.20 }),
+        );
+    } else if is_current {
         ui.painter().rect_filled(
             row_rect,
             corner,
@@ -603,6 +759,7 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
             egui::StrokeKind::Inside,
         );
     }
+    theme::focus_ring(ui, &response);
     let cols = columns(width, &row);
     let painter = ui.painter().clone();
     let mut x = rect.left() + 8.0;
@@ -662,6 +819,37 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
                 Icon::Mic
             },
         );
+        // Without a number column the cover carries the play control:
+        // hover shows it, a click uses it, and what plays shows there.
+        if cols.number == 0.0 {
+            let scrim = |alpha: u8| {
+                painter.rect_filled(
+                    cover_rect,
+                    CornerRadius::same(4),
+                    Color32::from_black_alpha(alpha),
+                );
+            };
+            if app.play_pending(row.item.uri()) {
+                scrim(140);
+                let mut child = ui.new_child(
+                    UiBuilder::new()
+                        .max_rect(cover_rect)
+                        .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
+                );
+                theme::spinner(&mut child, 16.0, Color32::WHITE);
+            } else if hovered && !unavailable {
+                scrim(140);
+                let icon = if playing {
+                    Icon::PauseFilled
+                } else {
+                    Icon::PlayFilled
+                };
+                theme::paint_icon(ui, icon, cover_rect, 16.0, Color32::WHITE);
+            } else if playing {
+                scrim(110);
+                theme::paint_icon(ui, Icon::AudioLines, cover_rect, 16.0, palette.accent);
+            }
+        }
         x += cols.cover;
     }
     let right_fixed = cols.heart + cols.duration + cols.more + 8.0;
@@ -682,34 +870,53 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     } else {
         palette.secondary
     };
-    let mut child = ui.new_child(
-        UiBuilder::new()
-            .max_rect(title_rect)
-            .layout(Layout::top_down(Align::LEFT)),
-    );
-    child.set_clip_rect(title_rect.intersect(ui.clip_rect()));
-    child.spacing_mut().item_spacing = vec2(6.0, 1.0);
-    child.spacing_mut().interact_size.y = 16.0;
-    let vertical_pad = ((row_height - 37.0) / 2.0).max(4.0);
-    child.add_space(vertical_pad);
-    child.horizontal(|ui| {
-        ui.set_max_width(title_rect.width());
-        theme::text(ui, row.item.name(), theme::medium(14.5), title_color);
-    });
-    child.horizontal(|ui| {
-        ui.set_max_width(title_rect.width());
+    if row.thin {
+        let mut child = ui.new_child(
+            UiBuilder::new()
+                .max_rect(title_rect)
+                .layout(Layout::left_to_right(Align::Center)),
+        );
+        child.set_clip_rect(title_rect.intersect(ui.clip_rect()));
+        child.spacing_mut().item_spacing = vec2(6.0, 0.0);
+        theme::text(
+            &mut child,
+            row.item.name(),
+            theme::medium(14.0),
+            title_color,
+        );
         match row.item {
             PlayableItem::Track(track) => {
                 if track.explicit {
-                    explicit_badge(ui, &palette);
+                    explicit_badge(&mut child, &palette);
                 }
-                let names = track.artist_names();
-                let first_artist = track.artists.iter().find_map(|artist| artist.id.clone());
-                let response = theme::link(ui, names, theme::regular(12.5), subtitle_color);
-                if response.clicked()
-                    && let Some(id) = first_artist
+                theme::text(
+                    &mut child,
+                    "•",
+                    theme::regular(12.0),
+                    palette.secondary.gamma_multiply(0.6),
+                );
+                artist_links(
+                    &mut child,
+                    app,
+                    &track.artists,
+                    theme::regular(13.0),
+                    subtitle_color,
+                );
+                if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
+                    && cols.added == 0.0
                 {
-                    app.actions.push(Action::Open(Page::Artist(id)));
+                    let label = util::format_relative_date(added, jiff::Timestamp::now());
+                    theme::text(
+                        &mut child,
+                        "•",
+                        theme::regular(12.0),
+                        palette.secondary.gamma_multiply(0.6),
+                    );
+                    theme::text(&mut child, &label, theme::regular(12.0), palette.secondary);
+                    if label.ends_with(" ago") {
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_secs(1));
+                    }
                 }
             }
             PlayableItem::Episode(episode) => {
@@ -718,16 +925,119 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
                     .as_ref()
                     .map(|show| show.name.clone())
                     .unwrap_or_default();
-                let show_id = episode.show.as_ref().map(|show| show.id.clone());
-                let response = theme::link(ui, subtitle, theme::regular(12.5), subtitle_color);
-                if response.clicked()
-                    && let Some(id) = show_id
+                if !subtitle.is_empty() {
+                    theme::text(
+                        &mut child,
+                        "•",
+                        theme::regular(12.0),
+                        palette.secondary.gamma_multiply(0.6),
+                    );
+                    let show_id = episode.show.as_ref().map(|show| show.id.clone());
+                    let response =
+                        theme::link(&mut child, subtitle, theme::regular(13.0), subtitle_color);
+                    if response.clicked()
+                        && let Some(id) = show_id
+                    {
+                        app.actions.push(Action::Open(Page::Show(id)));
+                    }
+                }
+                if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
+                    && cols.added == 0.0
                 {
-                    app.actions.push(Action::Open(Page::Show(id)));
+                    theme::text(
+                        &mut child,
+                        "•",
+                        theme::regular(12.0),
+                        palette.secondary.gamma_multiply(0.6),
+                    );
+                    let label = util::format_relative_date(added, jiff::Timestamp::now());
+                    theme::text(&mut child, &label, theme::regular(12.0), palette.secondary);
+                    if label.ends_with(" ago") {
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_secs(1));
+                    }
                 }
             }
         }
-    });
+    } else {
+        let mut child = ui.new_child(
+            UiBuilder::new()
+                .max_rect(title_rect)
+                .layout(Layout::top_down(Align::LEFT)),
+        );
+        child.set_clip_rect(title_rect.intersect(ui.clip_rect()));
+        child.spacing_mut().item_spacing = vec2(6.0, 1.0);
+        child.spacing_mut().interact_size.y = 16.0;
+        let vertical_pad = ((row_height - 37.0) / 2.0).max(4.0);
+        child.add_space(vertical_pad);
+        child.horizontal(|ui| {
+            ui.set_max_width(title_rect.width());
+            theme::text(ui, row.item.name(), theme::medium(14.5), title_color);
+        });
+        child.horizontal(|ui| {
+            ui.set_max_width(title_rect.width());
+            match row.item {
+                PlayableItem::Track(track) => {
+                    if track.explicit {
+                        explicit_badge(ui, &palette);
+                    }
+                    artist_links(
+                        ui,
+                        app,
+                        &track.artists,
+                        theme::regular(12.5),
+                        subtitle_color,
+                    );
+                    if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
+                        && cols.added == 0.0
+                    {
+                        theme::text(
+                            ui,
+                            "•",
+                            theme::regular(12.0),
+                            palette.secondary.gamma_multiply(0.6),
+                        );
+                        let label = util::format_relative_date(added, jiff::Timestamp::now());
+                        theme::text(ui, &label, theme::regular(12.0), palette.secondary);
+                        if label.ends_with(" ago") {
+                            ui.ctx()
+                                .request_repaint_after(std::time::Duration::from_secs(1));
+                        }
+                    }
+                }
+                PlayableItem::Episode(episode) => {
+                    let subtitle = episode
+                        .show
+                        .as_ref()
+                        .map(|show| show.name.clone())
+                        .unwrap_or_default();
+                    let show_id = episode.show.as_ref().map(|show| show.id.clone());
+                    let response = theme::link(ui, subtitle, theme::regular(12.5), subtitle_color);
+                    if response.clicked()
+                        && let Some(id) = show_id
+                    {
+                        app.actions.push(Action::Open(Page::Show(id)));
+                    }
+                    if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
+                        && cols.added == 0.0
+                    {
+                        theme::text(
+                            ui,
+                            "•",
+                            theme::regular(12.0),
+                            palette.secondary.gamma_multiply(0.6),
+                        );
+                        let label = util::format_relative_date(added, jiff::Timestamp::now());
+                        theme::text(ui, &label, theme::regular(12.0), palette.secondary);
+                        if label.ends_with(" ago") {
+                            ui.ctx()
+                                .request_repaint_after(std::time::Duration::from_secs(1));
+                        }
+                    }
+                }
+            }
+        });
+    }
     x = text_right;
 
     // Album.
@@ -766,9 +1076,11 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
                 pos2(x + cols.added_by - 12.0, rect.bottom()),
             );
             let clipped = painter.with_clip_rect(cell.intersect(ui.clip_rect()));
-            clipped.text(
-                pos2(cell.left(), cell.center().y),
-                egui::Align2::LEFT_CENTER,
+            crate::bidi::paint_line(
+                &clipped,
+                cell.left(),
+                cell.right(),
+                cell.center().y,
                 adder,
                 theme::regular(13.0),
                 palette.secondary,
@@ -785,13 +1097,20 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
             .filter(|added| !added.starts_with("1970-01-01"))
         {
             let cell = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.added, row_height));
+            let label = util::format_relative_date(added, jiff::Timestamp::now());
             painter.text(
                 pos2(cell.left(), cell.center().y),
                 egui::Align2::LEFT_CENTER,
-                util::format_date(added),
+                &label,
                 theme::regular(13.0),
                 palette.secondary,
             );
+            // Relative labels cross a boundary while the table is idle, so
+            // keep the visible value in step with the clock.
+            if label.ends_with(" ago") {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_secs(1));
+            }
         }
         x += cols.added;
     }
@@ -800,12 +1119,18 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     if cols.heart > 0.0 {
         let saved = app.is_saved(row.item.uri());
         let heart_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.heart, row_height));
-        if row.item.is_track() && (hovered || saved == Some(true)) {
+        if row.item.is_track() {
             let mut child = ui.new_child(
                 UiBuilder::new()
                     .max_rect(heart_rect)
                     .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
             );
+            if !hovered
+                && saved != Some(true)
+                && !child.memory(|memory| memory.has_focus(child.next_auto_id()))
+            {
+                child.set_opacity(0.0);
+            }
             let (icon, color) = if saved == Some(true) {
                 (Icon::HeartFilled, palette.accent)
             } else {
@@ -840,13 +1165,19 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     // only on a hovered row, the pointer's trip to the menu could leave
     // the row and close it before anything was clicked.
     let menu_id = ui.id().with(("row-menu", row.index));
-    if cols.more > 0.0 && (hovered || egui::Popup::is_id_open(ui.ctx(), menu_id)) {
+    if cols.more > 0.0 {
         let more_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.more, row_height));
         let mut child = ui.new_child(
             UiBuilder::new()
                 .max_rect(more_rect)
                 .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
         );
+        if !hovered
+            && !egui::Popup::is_id_open(ui.ctx(), menu_id)
+            && !child.memory(|memory| memory.has_focus(child.next_auto_id()))
+        {
+            child.set_opacity(0.0);
+        }
         let more = theme::icon_button(
             &mut child,
             Icon::Ellipsis,
@@ -862,22 +1193,31 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
     }
 
     // Row interactions.
-    if response.double_clicked() && !unavailable {
+    let mut pick = None;
+    let accessible_click = response.clicked() && response.interact_pointer_pos().is_none();
+    if (response.double_clicked() || accessible_click) && !unavailable {
         app.actions.push(Action::PlayFromRow {
             context: row.context.clone(),
             uri: row.item.uri().to_string(),
             index: row.index as u32,
         });
-    } else if response.clicked() && cols.number > 0.0 {
-        let number_rect = Rect::from_min_size(
-            pos2(rect.left() + 8.0, rect.top()),
-            vec2(cols.number, row_height),
-        );
-        if response
-            .interact_pointer_pos()
-            .is_some_and(|pos| number_rect.contains(pos))
-            && !unavailable
-        {
+    } else if response.clicked() {
+        // The cell that holds the play control: the number column when
+        // there is one, the cover when there is not.
+        let control = if cols.number > 0.0 {
+            Some(vec2(cols.number, row_height))
+        } else if cols.cover > 0.0 {
+            Some(vec2(cols.cover, row_height))
+        } else {
+            None
+        };
+        let on_control = control.is_some_and(|size| {
+            let control_rect = Rect::from_min_size(pos2(rect.left() + 8.0, rect.top()), size);
+            response
+                .interact_pointer_pos()
+                .is_some_and(|pos| control_rect.contains(pos))
+        });
+        if on_control && !unavailable {
             if is_current {
                 app.actions.push(Action::TogglePlay);
             } else {
@@ -887,11 +1227,31 @@ pub fn track_row(ui: &mut Ui, app: &mut App, row: TrackRow<'_>) {
                     index: row.index as u32,
                 });
             }
+        } else if !on_control {
+            // The body of the row, which plays nothing on a single click.
+            let modifiers = ui.input(|input| input.modifiers);
+            pick = Some(if modifiers.shift {
+                RowPick::Range
+            } else if modifiers.command {
+                RowPick::Toggle
+            } else {
+                RowPick::Only
+            });
         }
     }
     egui::Popup::context_menu(&response)
         .frame(menu_frame(&palette))
-        .show(|ui| item_menu(ui, app, row.item, Some(row.context), Some(row.index)));
+        .show(|ui| {
+            // Right-clicking one of several picked rows acts on all of
+            // them; on anything else it is the ordinary single-song menu,
+            // including a picked row that is the only one picked.
+            if row.picked && row.picked_songs.len() > 1 {
+                picked_menu(ui, app, row.picked_songs);
+            } else {
+                item_menu(ui, app, row.item, Some(row.context), Some(row.index));
+            }
+        });
+    pick
 }
 
 /// The chip that rides the pointer while a song is being dragged.
@@ -992,6 +1352,14 @@ pub fn table_header(
         let head =
             Rect::from_min_size(top_left, size + vec2(arrow_room, 0.0)).expand2(vec2(4.0, 8.0));
         let response = ui.interact(head, ui.id().with(("table-header", text)), Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                format!("Sort by {text}"),
+            )
+        });
+        theme::focus_ring(ui, &response);
         let color = if active.is_some() {
             palette.accent
         } else if response.hovered() {
@@ -1035,6 +1403,14 @@ pub fn table_header(
         let natural = sort.is_none();
         let active = sort.filter(|sort| sort.column == SortColumn::Index);
         let response = ui.interact(number, ui.id().with("table-header-number"), Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                "Sort by playlist order",
+            )
+        });
+        theme::focus_ring(ui, &response);
         let number_color = if natural || active.is_some() {
             palette.accent
         } else if response.hovered() {
@@ -1067,7 +1443,7 @@ pub fn table_header(
         }
         if response
             .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text("The list's own order, reversed")
+            .on_hover_text("Original order, reversed")
             .clicked()
         {
             number_clicked = true;
@@ -1118,6 +1494,14 @@ pub fn table_header(
         ui.id().with("table-header-duration"),
         Sense::click(),
     );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            "Sort by duration",
+        )
+    });
+    theme::focus_ring(ui, &response);
     let clock_color = if duration_active {
         palette.accent
     } else if response.hovered() {
@@ -1168,11 +1552,15 @@ pub fn ellipsized(
     width: f32,
     max_rows: usize,
 ) -> std::sync::Arc<egui::Galley> {
-    let mut job = egui::text::LayoutJob::simple(text.to_string(), font, color, width);
-    job.wrap.max_rows = max_rows;
-    job.wrap.break_anywhere = false;
-    job.wrap.overflow_character = Some('…');
-    ui.painter().layout_job(job)
+    crate::bidi::layout(
+        ui.painter(),
+        text,
+        font,
+        color,
+        width,
+        max_rows,
+        Some(crate::bidi::ELLIPSIS),
+    )
 }
 
 pub struct CardResponse {
@@ -1212,6 +1600,13 @@ pub fn card(
     let height =
         PAD + image_size + TITLE_GAP + title_row + SUBTITLE_GAP + 2.0 * subtitle_row + BOTTOM_PAD;
     let (rect, response) = ui.allocate_exact_size(vec2(CARD_WIDTH, height), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!("{title}, {subtitle}"),
+        )
+    });
     let mut play = false;
     if ui.is_rect_visible(rect) {
         let hovered = ui.rect_contains_pointer(rect);
@@ -1261,8 +1656,13 @@ pub fn card(
             pos2(text_left, title_rect.bottom() + SUBTITLE_GAP),
             vec2(text_width, 2.0 * subtitle_row),
         );
+        let subtitle_pos = match subtitle_galley.job.halign {
+            Align::RIGHT => pos2(subtitle_rect.right(), subtitle_rect.top()),
+            Align::Center => pos2(subtitle_rect.center().x, subtitle_rect.top()),
+            _ => subtitle_rect.min,
+        };
         ui.painter()
-            .galley(subtitle_rect.min, subtitle_galley, palette.secondary);
+            .galley(subtitle_pos, subtitle_galley, palette.secondary);
 
         if playable && hovered {
             let button_rect = Rect::from_center_size(
@@ -1287,6 +1687,7 @@ pub fn card(
         }
     }
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    theme::focus_ring(ui, &response);
     CardResponse {
         clicked: response.clicked() && !play,
         play,
@@ -1304,15 +1705,12 @@ pub fn shelf(
     ui.add_space(8.0);
     theme::section_title(ui, palette, title);
     ui.add_space(4.0);
-    egui::ScrollArea::horizontal()
-        .id_salt(id)
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = CARD_GAP / 2.0;
-                add_contents(ui);
-            });
+    egui::ScrollArea::horizontal().id_salt(id).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = CARD_GAP / 2.0;
+            add_contents(ui);
         });
+    });
     ui.add_space(12.0);
 }
 
@@ -1363,17 +1761,55 @@ pub enum SliderEvent {
     Committed(f32),
 }
 
+/// Whole notches the wheel turned over `response` since last asked, up
+/// being positive. A mouse's detent is one event, however many lines the
+/// system multiplies it into (Windows says three by default, #103); a
+/// free-spinning wheel's fractional lines and a trackpad's points add up
+/// to the same steps, fifty points to a notch.
+pub fn wheel_notches(ui: &Ui, response: &egui::Response) -> i32 {
+    const NOTCH: f32 = 50.0;
+    if !response.hovered() {
+        return 0;
+    }
+    let (lines, points) = ui.input(|input| {
+        let mut lines = 0.0f32;
+        let mut points = 0.0f32;
+        for event in &input.events {
+            if let egui::Event::MouseWheel { unit, delta, .. } = event {
+                match unit {
+                    egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page => {
+                        lines += if delta.y.abs() >= 1.0 {
+                            delta.y.signum()
+                        } else {
+                            delta.y
+                        };
+                    }
+                    egui::MouseWheelUnit::Point => points += delta.y,
+                }
+            }
+        }
+        (lines, points)
+    });
+    let id = response.id.with("wheel");
+    let total = ui.data(|data| data.get_temp::<f32>(id)).unwrap_or(0.0) + points + lines * NOTCH;
+    let notches = (total / NOTCH).trunc();
+    ui.data_mut(|data| data.insert_temp(id, total - notches * NOTCH));
+    notches as i32
+}
+
 /// A thin horizontal slider whose handle appears on hover, for seeking and
 /// volume. `value` is 0..=1.
 pub fn thin_slider(
     ui: &mut Ui,
     palette: &Palette,
     id: egui::Id,
+    label: &str,
     value: f32,
     width: f32,
-    accent: Color32,
+    wheel_step: Option<f32>,
 ) -> SliderEvent {
-    let (rect, response) = ui.allocate_exact_size(vec2(width, 16.0), Sense::click_and_drag());
+    let (_, rect) = ui.allocate_space(vec2(width, 16.0));
+    let response = ui.interact(rect, id, Sense::click_and_drag());
     let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
     let dragging_value = ui.data(|data| data.get_temp::<f32>(id));
     let pointer_value = response
@@ -1395,13 +1831,72 @@ pub fn thin_slider(
     {
         event = SliderEvent::Committed(v);
     }
+    if let Some(step) = wheel_step {
+        let notches = wheel_notches(ui, &response);
+        if notches != 0 {
+            event = SliderEvent::Committed((value + step * notches as f32).clamp(0.0, 1.0));
+        }
+    }
+    let step = wheel_step.unwrap_or(0.01);
+    let focused = response.has_focus();
+    if focused {
+        ui.memory_mut(|memory| {
+            memory.set_focus_lock_filter(
+                response.id,
+                egui::EventFilter {
+                    horizontal_arrows: true,
+                    ..Default::default()
+                },
+            )
+        });
+    }
+    if response.enabled() {
+        ui.input(|input| {
+            use egui::accesskit::{Action, ActionData};
+            let mut change = input.num_accesskit_action_requests(response.id, Action::Increment)
+                as i32
+                - input.num_accesskit_action_requests(response.id, Action::Decrement) as i32;
+            if focused {
+                change += input.num_presses(egui::Key::ArrowRight) as i32
+                    - input.num_presses(egui::Key::ArrowLeft) as i32;
+            }
+            if change != 0 {
+                event = SliderEvent::Committed((value + change as f32 * step).clamp(0.0, 1.0));
+            }
+            for request in input.accesskit_action_requests(response.id, Action::SetValue) {
+                if let Some(ActionData::NumericValue(value)) = request.data
+                    && value.is_finite()
+                {
+                    event = SliderEvent::Committed((value / 100.0).clamp(0.0, 1.0) as f32);
+                }
+            }
+        });
+    }
     let shown = match &event {
         SliderEvent::Dragging(v) => *v,
         SliderEvent::Committed(v) => *v,
         SliderEvent::None => dragging_value.unwrap_or(value),
     };
+    response
+        .widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), f64::from(shown) * 100.0, label));
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        use egui::accesskit::Action;
+        node.set_min_numeric_value(0.0);
+        node.set_max_numeric_value(100.0);
+        node.set_numeric_value_step(f64::from(step) * 100.0);
+        node.add_action(Action::SetValue);
+        if shown > 0.0 {
+            node.add_action(Action::Decrement);
+        }
+        if shown < 1.0 {
+            node.add_action(Action::Increment);
+        }
+    });
     if ui.is_rect_visible(rect) {
-        let active = response.hovered() || response.dragged() || dragging_value.is_some();
+        let active = response.hovered()
+            || response.has_focus()
+            || response.dragged()
+            || dragging_value.is_some();
         let height = if active { 5.0 } else { 3.5 };
         let bar = Rect::from_center_size(rect.center(), vec2(rect.width(), height));
         let track_color = if palette.dark {
@@ -1414,7 +1909,7 @@ pub fn thin_slider(
             bar.min,
             pos2(bar.left() + bar.width() * shown.clamp(0.0, 1.0), bar.max.y),
         );
-        let fill = if active { accent } else { palette.text };
+        let fill = if active { palette.accent } else { palette.text };
         ui.painter().rect_filled(filled, height / 2.0, fill);
         if active {
             let thumb_pos = pos2(filled.right(), bar.center().y);
@@ -1488,6 +1983,18 @@ pub fn search_field(
             .max_rect(field_rect)
             .layout(Layout::left_to_right(Align::Center)),
     );
+    // A right-to-left query is shown in reading order. The caret keeps
+    // egui's own idea of where it is: at the end of what was typed.
+    let text_color = palette.text;
+    let mut layouter = |ui: &egui::Ui, buffer: &dyn egui::TextBuffer, _wrap_width: f32| {
+        let shown = crate::bidi::display_text(buffer.as_str()).into_owned();
+        ui.painter()
+            .layout_job(egui::text::LayoutJob::simple_singleline(
+                shown,
+                theme::regular(14.0),
+                text_color,
+            ))
+    };
     let response = child.add(
         egui::TextEdit::singleline(text)
             .id(id)
@@ -1496,8 +2003,11 @@ pub fn search_field(
             .text_color(palette.text)
             .frame(egui::Frame::NONE)
             .desired_width(field_rect.width())
-            .vertical_align(Align::Center),
+            .vertical_align(Align::Center)
+            .layouter(&mut layouter),
     );
+    ui.ctx()
+        .accesskit_node_builder(response.id, |node| node.set_label(hint));
     if !text.is_empty() {
         let clear_rect = Rect::from_center_size(
             pos2(rect.right() - 17.0, rect.center().y),
@@ -1526,7 +2036,7 @@ pub fn search_field(
 }
 
 /// A toggle drawn as a switch.
-pub fn switch(ui: &mut Ui, palette: &Palette, on: &mut bool) -> egui::Response {
+pub fn switch(ui: &mut Ui, palette: &Palette, label: &str, on: &mut bool) -> egui::Response {
     let size = vec2(40.0, 22.0);
     let (rect, mut response) = ui.allocate_exact_size(size, Sense::click());
     if response.clicked() {
@@ -1545,6 +2055,10 @@ pub fn switch(ui: &mut Ui, palette: &Palette, on: &mut bool) -> egui::Response {
         ui.painter()
             .circle_filled(pos2(knob_x, rect.center().y), 8.0, Color32::WHITE);
     }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, label)
+    });
+    theme::focus_ring(ui, &response);
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -1558,7 +2072,9 @@ pub fn setting_row(
 ) {
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
-            ui.set_width(ui.available_width() - 260.0);
+            // A frame can arrive before the window has its size (a fullscreen
+            // request on Wayland answers a frame late), so never go negative.
+            ui.set_width((ui.available_width() - 260.0).max(0.0));
             theme::text(ui, label, theme::medium(14.0), palette.text);
             if !description.is_empty() {
                 ui.add(

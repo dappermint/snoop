@@ -2,9 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-#[cfg(not(target_os = "macos"))]
-use snoop::util;
-use snoop::{app, backend, paths, settings, single_instance};
+use snoop::{app, backend, paths, settings, single_instance, util};
 
 use clap::Parser;
 
@@ -15,6 +13,12 @@ struct Cli {
     /// A command for the running instance; without one, the app starts.
     #[command(subcommand)]
     control: Option<Control>,
+
+    /// A Spotify link to open: spotify:track:…, or an open.spotify.com
+    /// address. The running Snoop opens it when there is one, which
+    /// is how the desktop hands links over.
+    #[arg(value_name = "LINK")]
+    link: Option<String>,
 
     /// Spotify Connect device name for this session.
     #[arg(long)]
@@ -200,7 +204,7 @@ fn run_control(control: Control) -> i32 {
             0
         }
         Err(error) => {
-            eprintln!("Snoop is not running, or predates remote control: {error}");
+            eprintln!("Snoop is not running or does not support remote control: {error}");
             1
         }
     }
@@ -267,12 +271,33 @@ fn format_devices(snapshot: &str) -> String {
 }
 
 fn main() -> eframe::Result<()> {
+    // A MilkDrop child launch is a bare visualiser window, not the app: it has
+    // its own event loop and OpenGL context, reads the sound from a shared
+    // buffer, and never touches the app's state. Handle it before anything
+    // else, including the argument parser, which does not know its flags.
+    #[cfg(feature = "milkdrop")]
+    if let Some(args) = snoop::milkdrop::child::Args::parse() {
+        std::process::exit(snoop::milkdrop::child::run(args));
+    }
+
     let cli = Cli::parse();
     // A control launch is a client, not a second app: talk to the running
     // instance and exit before touching the log file it is writing to.
     if let Some(control) = cli.control {
         std::process::exit(run_control(control));
     }
+    // A link is read before anything starts: one that is not a Spotify
+    // link ends the launch here rather than reaching the running instance.
+    let link = cli
+        .link
+        .as_deref()
+        .map(|text| match snoop::link::parse(text) {
+            Some(uri) => uri,
+            None => {
+                eprintln!("not a Spotify link: {text}");
+                std::process::exit(2);
+            }
+        });
     let default_filter = if cli.verbose {
         "info,librespot=info,snoop=debug"
     } else {
@@ -315,7 +340,7 @@ fn main() -> eframe::Result<()> {
     #[cfg(not(feature = "demo"))]
     let guarded = true;
     let instance = if guarded {
-        match single_instance::acquire(&waker) {
+        match single_instance::acquire(&waker, link.as_deref()) {
             single_instance::Outcome::Only(guard) => Some(guard),
             single_instance::Outcome::Surfaced => {
                 log::info!("Snoop is already running; asked it to show its window");
@@ -325,6 +350,13 @@ fn main() -> eframe::Result<()> {
     } else {
         None
     };
+    // macOS hands links to an app as Apple Events, the one it was launched
+    // for included, so the handler is in place before the event loop that
+    // delivers them starts.
+    #[cfg(target_os = "macos")]
+    if let Some(guard) = &instance {
+        snoop::mac_links::install(guard.commands(), waker.clone());
+    }
 
     // A capture run is a throwaway process next to the real one: no tray
     // icon of its own, and no second MPRIS service to fight over media keys.
@@ -342,6 +374,9 @@ fn main() -> eframe::Result<()> {
     if let Some(guard) = &instance {
         app.set_remote_control(guard);
     }
+    if let Some(uri) = link {
+        app.open_link(uri);
+    }
     #[cfg(feature = "demo")]
     if demo {
         snoop::demo::populate(&mut app);
@@ -354,16 +389,19 @@ fn main() -> eframe::Result<()> {
         asked: false,
     });
     let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(app)));
-
     loop {
         let creator_slot = std::sync::Arc::clone(&slot);
         let creator_waker = waker.clone();
         #[cfg(feature = "demo")]
         let creator_shot = shot.clone();
+        let mini = {
+            let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
+            MiniWindow::wanted(guard.as_ref().expect("application state present"))
+        };
         #[cfg(feature = "demo")]
-        let options = native_options(shot.is_some());
+        let options = native_options(shot.is_some() && mini.is_none(), mini);
         #[cfg(not(feature = "demo"))]
-        let options = native_options(false);
+        let options = native_options(false, mini);
         eframe::run_native(
             "Snoop",
             options,
@@ -400,11 +438,18 @@ fn main() -> eframe::Result<()> {
         )?;
         waker.detach();
 
-        let hide = {
+        let (switch, hide) = {
             let guard = slot.lock().unwrap_or_else(|p| p.into_inner());
             let app = guard.as_ref().expect("application state present");
-            !app.quit_requested && app.hide_intent
+            (
+                !app.quit_requested && app.switch_intent,
+                !app.quit_requested && app.hide_intent,
+            )
         };
+        if switch {
+            // Straight back round: the other kind of window opens.
+            continue;
+        }
         if !hide {
             break;
         }
@@ -488,29 +533,76 @@ fn log_panics(path: std::path::PathBuf) {
     }));
 }
 
-fn native_options(fullscreen: bool) -> eframe::NativeOptions {
-    #[allow(unused_mut)]
-    let mut viewport = egui::ViewportBuilder::default()
+/// The Winamp mini player's window, when that is the window to open.
+struct MiniWindow {
+    /// A first size; the window corrects it once it knows the display.
+    size: egui::Vec2,
+    position: Option<[f32; 2]>,
+    on_top: bool,
+}
+
+impl MiniWindow {
+    fn wanted(app: &app::App) -> Option<Self> {
+        app.settings.winamp_window.then(|| Self {
+            size: snoop::ui::winamp::initial_size(&app.settings),
+            position: app.winamp.restore_pos,
+            on_top: app.settings.winamp_on_top,
+        })
+    }
+}
+
+const fn main_window_decorated(on_windows: bool) -> bool {
+    !on_windows
+}
+
+fn native_options(fullscreen: bool, mini: Option<MiniWindow>) -> eframe::NativeOptions {
+    let icon = if cfg!(target_os = "macos") {
+        // macOS takes the dock icon from the bundle's .icns, which is the
+        // 1024px drawing with the platform's rounding. Setting a window
+        // icon there replaces it with this flat 128px square.
+        egui::IconData::default()
+    } else {
+        app_icon()
+    };
+    let viewport = egui::ViewportBuilder::default()
         .with_title("Snoop")
         .with_app_id("snoop")
-        .with_inner_size([1240.0, 800.0])
-        .with_min_inner_size([760.0, 520.0])
-        .with_fullscreen(fullscreen);
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        viewport = viewport.with_icon(app_icon());
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        viewport = viewport
-            .with_icon(egui::IconData::default())
+        .with_icon(icon);
+    let viewport = match mini {
+        Some(mini) => {
+            let level = app::on_top_window_level(mini.on_top);
+            // See-through, for skins that are not rectangles; the skin
+            // paints every pixel that is the window. MilkDrop runs in its own
+            // process, so nothing else shares this window's surface.
+            let viewport = viewport
+                .with_decorations(false)
+                .with_transparent(true)
+                .with_resizable(false)
+                .with_maximize_button(false)
+                .with_inner_size(mini.size)
+                .with_min_inner_size(mini.size)
+                .with_max_inner_size(mini.size)
+                .with_window_level(level);
+            match mini.position {
+                Some([x, y]) => viewport.with_position([x, y]),
+                None => viewport,
+            }
+        }
+        None => viewport
+            // macOS: no title bar strip above the app. The content runs to
+            // the top edge and the traffic lights float over it, the way
+            // every other music player on the platform looks; the interface
+            // leaves room for them with `theme::titlebar_inset`.
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)
-            .with_title_shown(false);
-    }
-
+            .with_title_shown(false)
+            // Windows has no equivalent to macOS's floating traffic lights.
+            // Removing its decorations lets the app surface fill the window.
+            .with_decorations(main_window_decorated(cfg!(windows)))
+            .with_inner_size([1240.0, 800.0])
+            .with_min_inner_size([760.0, 520.0])
+            .with_fullscreen(fullscreen),
+    };
     eframe::NativeOptions {
         viewport,
         // A Wayland compositor stops sending frame callbacks to a hidden
@@ -521,6 +613,26 @@ fn native_options(fullscreen: bool) -> eframe::NativeOptions {
             ..Default::default()
         },
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod native_window_tests {
+    use super::*;
+
+    #[test]
+    fn main_window_uses_the_platform_decoration_policy() {
+        let options = native_options(false, None);
+        assert_eq!(options.viewport.decorations, Some(!cfg!(windows)));
+        assert_eq!(options.viewport.fullsize_content_view, Some(true));
+        assert_eq!(options.viewport.titlebar_shown, Some(false));
+        assert_eq!(options.viewport.title_shown, Some(false));
+    }
+
+    #[test]
+    fn only_windows_removes_the_native_frame() {
+        assert!(!main_window_decorated(true));
+        assert!(main_window_decorated(false));
     }
 }
 
@@ -615,6 +727,7 @@ impl eframe::App for Shell {
                     MenuCommand::Sidebar => Action::ToggleSidebar,
                     MenuCommand::Queue => Action::ToggleQueuePanel,
                     MenuCommand::Settings => Action::Open(Page::Settings),
+                    MenuCommand::CheckForUpdates => Action::CheckForUpdates,
                     MenuCommand::Shortcuts => Action::ShowDialog(Dialog::Shortcuts),
                     MenuCommand::Back => Action::Back,
                     MenuCommand::Forward => Action::Forward,
@@ -665,6 +778,20 @@ impl eframe::App for Shell {
         }
     }
 
+    /// The mini player's window is see-through where the skin leaves it
+    /// out; the big window paints itself over eframe's own ground.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        if self
+            .app
+            .as_ref()
+            .is_some_and(|app| app.settings.winamp_window)
+        {
+            [0.0; 4]
+        } else {
+            egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32()
+        }
+    }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         if let Some(app) = self.app.as_mut() {
             app.save_state();
@@ -679,12 +806,46 @@ impl Drop for Shell {
 }
 
 /// The window icon, from the shared runtime drawing.
-#[cfg(not(target_os = "macos"))]
 fn app_icon() -> egui::IconData {
     const SIZE: usize = 128;
     egui::IconData {
         rgba: util::app_icon_rgba(SIZE),
         width: SIZE as u32,
         height: SIZE as u32,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A link on the command line is a link, and a control verb is still a
+    /// verb: the two do not get in each other's way.
+    #[test]
+    fn a_link_and_a_verb_are_told_apart() {
+        // #given / #when / #then
+        let launch = Cli::try_parse_from(["snoop", "spotify:track:4uLU6hMCjMI75M1A2tKUQC"])
+            .expect("a link parses");
+        assert_eq!(
+            launch.link.as_deref(),
+            Some("spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+        );
+        assert!(launch.control.is_none());
+
+        let launch = Cli::try_parse_from([
+            "snoop",
+            "https://open.spotify.com/album/1DFixLWuPkv3KT3TnV35m3?si=x",
+            "--verbose",
+        ])
+        .expect("a web address parses");
+        assert!(launch.link.is_some());
+        assert!(launch.verbose);
+
+        let verb = Cli::try_parse_from(["snoop", "next"]).expect("a verb parses");
+        assert!(matches!(verb.control, Some(Control::Next)));
+        assert!(verb.link.is_none());
+
+        let bare = Cli::try_parse_from(["snoop"]).expect("a plain launch parses");
+        assert!(bare.link.is_none() && bare.control.is_none());
     }
 }

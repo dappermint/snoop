@@ -5,13 +5,13 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report. Without the log, most reports cannot be acted on, so please include it. Snoop writes the log of its last run to:
+        Please include the log from Snoop's last run:
 
         - macOS: `~/Library/Application Support/com.dappermint.snoop/snoop.log`
         - Linux: `~/.local/state/snoop/snoop.log`
         - Windows: `%LOCALAPPDATA%\dappermint\snoop\data\snoop.log`
 
-        If the app crashed or vanished, `panic.log` in the same folder says where it died; include that too. If there is no log file, run `snoop -v` from a terminal (on Windows, `snoop.exe -v` from PowerShell) and paste what it prints instead.
+        If the app crashed or vanished, include `panic.log` from the same folder.
   - type: input
     id: version
     attributes:

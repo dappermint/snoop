@@ -102,9 +102,11 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                         pos2(cover.right() + 12.0, rect.top()),
                         pos2(rect.right() - play_room, rect.bottom()),
                     );
-                    ui.painter().with_clip_rect(text_rect).text(
-                        pos2(text_rect.left(), rect.center().y),
-                        egui::Align2::LEFT_CENTER,
+                    crate::bidi::paint_line(
+                        &ui.painter().with_clip_rect(text_rect),
+                        text_rect.left(),
+                        text_rect.right(),
+                        rect.center().y,
                         name,
                         theme::bold(14.5),
                         palette.text,
@@ -372,13 +374,16 @@ fn track_list(
                 number: None,
                 item,
                 context: &context,
-                show_cover: true,
+                show_cover: !app.settings.tracklist_compact,
                 show_album: true,
                 added_at: None,
                 added_by: None,
                 show_added_by: false,
                 compact: false,
+                thin: app.settings.tracklist_compact,
                 shift: 0.0,
+                picked: false,
+                picked_songs: &[],
             },
         );
     }

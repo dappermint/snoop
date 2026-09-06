@@ -4,10 +4,17 @@ pub mod api;
 pub mod app;
 pub mod auth;
 pub mod backend;
+pub mod bidi;
 #[cfg(any(test, feature = "demo"))]
 pub mod demo;
+pub mod eq;
+pub mod history;
 pub mod images;
+pub mod limiter;
+pub mod link;
 pub mod lyrics;
+#[cfg(target_os = "macos")]
+pub mod mac_links;
 #[cfg(target_os = "macos")]
 pub mod mac_menu;
 pub mod media;
@@ -17,12 +24,16 @@ pub mod media_controls;
 #[cfg(not(target_os = "linux"))]
 #[path = "media_native.rs"]
 pub mod media_controls;
+pub mod milkdrop;
 pub mod model;
+pub mod opener;
 pub mod paths;
 pub mod player;
+pub mod resample;
 pub mod settings;
 pub mod single_instance;
 pub mod sink;
+pub mod skin;
 pub mod system_fonts;
 pub mod theme;
 pub mod themes;
@@ -34,4 +45,7 @@ pub mod tray;
 pub mod ui;
 pub mod updates;
 pub mod util;
+pub mod vis;
+pub mod winamp;
+pub mod window;
 pub mod zeroconf;

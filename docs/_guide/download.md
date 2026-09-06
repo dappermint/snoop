@@ -7,9 +7,9 @@ nav_order: 1
 {% assign v = site.snoop_version %}
 {% assign base = "https://github.com/dappermint/snoop/releases/download/v" | append: v %}
 
-The current version is **v{{ v }}**. Every file below, with its SHA-256, is
-listed in [checksums.txt]({{ base }}/checksums.txt); all versions live on
-the [releases page](https://github.com/dappermint/snoop/releases).
+The current version is **v{{ v }}**. SHA-256 checksums are in
+[checksums.txt]({{ base }}/checksums.txt). Older versions are on the
+[releases page](https://github.com/dappermint/snoop/releases).
 
 ## macOS
 
@@ -17,8 +17,10 @@ One download for both Apple Silicon and Intel:
 
 - [snoop-v{{ v }}-macos-universal.dmg]({{ base }}/snoop-v{{ v }}-macos-universal.dmg)
 
-Open it and drag **Snoop** to Applications. Or, with
-[Homebrew](https://brew.sh):
+Open it and drag **Snoop** to Applications. Once opened, it is
+registered for `spotify:` links, so links shared from other apps open in
+it; with the official client installed too, macOS keeps whichever it used
+last. Or, with [Homebrew](https://brew.sh):
 
 ```sh
 brew install --cask dappermint/tap/snoop
@@ -28,18 +30,20 @@ Homebrew installs the same unnotarized build, so the first-open steps below
 still apply. To skip them, clear the quarantine flag instead:
 
 ```sh
-xattr -dr com.apple.quarantine /Applications/Snoop.app
+find /Applications/Snoop.app -exec xattr -d com.apple.quarantine {} \; 2>/dev/null
 ```
 
-The `-r` matters: it clears the flag from the files inside the bundle too.
-macOS 26 leaves the app bouncing in the Dock forever when only the top level
-is cleared.
+The command must clear every file in the bundle. Clearing only the app can
+leave it bouncing in the Dock on macOS 26. This command also works on macOS
+27, where `xattr` no longer accepts `-r`.
+
+If the command fails, use the steps below instead. They do not need a
+terminal.
 
 ### First open on macOS
 
-This build is not yet notarized with Apple, so macOS blocks it the first
-time. Recent macOS versions (Sequoia and later) no longer let you bypass
-this with a right-click, so you open it once through Privacy & Security:
+This build is not notarized, so macOS blocks the first launch. On Sequoia and
+later, allow it in Privacy & Security:
 
 1. Double-click **Snoop** in Applications. macOS says it cannot be
    opened because Apple cannot check it for malicious software. Click
@@ -49,19 +53,19 @@ this with a right-click, so you open it once through Privacy & Security:
    to protect your Mac"*, and click **Open Anyway**.
 4. Authenticate, then click **Open Anyway** once more.
 
-macOS remembers the choice, so later launches work with an ordinary
-double-click.
+Later launches work with a normal double-click.
 
 ## Windows
 
 The installer adds Snoop to the Start menu and needs no administrator
-rights. Choose x86_64 for most PCs or aarch64 for Windows on ARM:
+rights. It also registers Snoop for `spotify:` links; if the official
+client is installed too, Settings → Apps → Default apps decides which of
+the two opens them. Choose x86_64 for most PCs or aarch64 for Windows on ARM:
 
 - [snoop-v{{ v }}-x86_64-pc-windows-msvc-setup.exe]({{ base }}/snoop-v{{ v }}-x86_64-pc-windows-msvc-setup.exe)
 - [snoop-v{{ v }}-aarch64-pc-windows-msvc-setup.exe]({{ base }}/snoop-v{{ v }}-aarch64-pc-windows-msvc-setup.exe)
 
-If you would rather not install anything, the same program comes as a zip:
-unpack it and run `snoop.exe`.
+For a portable copy, download a zip, unpack it, and run `snoop.exe`.
 
 - [snoop-v{{ v }}-x86_64-pc-windows-msvc.zip]({{ base }}/snoop-v{{ v }}-x86_64-pc-windows-msvc.zip)
 - [snoop-v{{ v }}-aarch64-pc-windows-msvc.zip]({{ base }}/snoop-v{{ v }}-aarch64-pc-windows-msvc.zip)
@@ -79,12 +83,52 @@ the macOS build.
 - [snoop-v{{ v }}-aarch64-unknown-linux-gnu.tar.gz]({{ base }}/snoop-v{{ v }}-aarch64-unknown-linux-gnu.tar.gz)
 
 Unpack, put `snoop` on your PATH, and copy the desktop entry and icon
-from the bundled `packaging/` directory if you want it in your launcher.
-Runtime needs are the ordinary desktop libraries: ALSA, PulseAudio or
-PipeWire, and Wayland or X11.
+from the bundled `packaging/` directory if you want it in your launcher and
+handling `spotify:` links.
+The binary needs ALSA, PulseAudio or PipeWire, and Wayland or X11.
 
 For AUR and Flatpak packages, see
 [upstream Fastpotify](https://github.com/crmne/fastpotify) — Snoop does not
 publish its own Linux packages.
 
 Or build from source: see [Getting Started](/getting-started/).
+
+## Nix
+
+Add the repository [flake](https://github.com/dappermint/snoop) to your
+inputs:
+
+```nix
+inputs.snoop.url = "github:dappermint/snoop";
+```
+
+On NixOS, install the default package:
+
+```nix
+environment.systemPackages = [
+  inputs.snoop.packages."${pkgs.stdenv.hostPlatform.system}".default
+];
+```
+
+### nix-darwin
+
+On macOS, use the `snoop-app` package instead. It is a `Snoop.app`
+bundle built and signed locally, so it is never quarantined and the
+first-open steps above do not apply:
+
+```nix
+environment.systemPackages = [
+  inputs.snoop.packages."${pkgs.stdenv.hostPlatform.system}".snoop-app
+];
+environment.pathsToLink = [ "/Applications" ];
+```
+
+The bundle appears in `/Applications/Nix Apps`. With Home Manager,
+`home.packages` is enough; its darwin support links app bundles into
+`~/Applications`:
+
+```nix
+home.packages = [
+  inputs.snoop.packages."${pkgs.stdenv.hostPlatform.system}".snoop-app
+];
+```

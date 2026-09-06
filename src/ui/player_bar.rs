@@ -3,7 +3,7 @@
 use egui::{Align, Frame, Layout, Margin, Rect, Sense, UiBuilder, Vec2, pos2, vec2};
 
 use crate::app::{App, NowPlaying};
-use crate::model::{Action, Page};
+use crate::model::{Action, DragTrack, Page};
 use crate::player::RepeatMode;
 use crate::theme::{self, Icon};
 use crate::util;
@@ -102,25 +102,59 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         6.0,
         Icon::Music,
     );
+    let song = app.now_playing_item();
+    let drag_sense = if song.is_some() {
+        Sense::click_and_drag()
+    } else {
+        Sense::click()
+    };
     let cover_response = ui
-        .interact(
-            cover_rect,
-            egui::Id::new("now-playing-cover"),
-            Sense::click(),
-        )
-        .on_hover_cursor(egui::CursorIcon::PointingHand);
-    if cover_response.clicked() {
+        .interact(cover_rect, egui::Id::new("now-playing-cover"), drag_sense)
+        .on_hover_cursor(if song.is_some() {
+            egui::CursorIcon::Grab
+        } else {
+            egui::CursorIcon::PointingHand
+        });
+    // Hovering the cover offers to dock the art large at the sidebar's
+    // bottom, the way Spotify expands it. (#92)
+    let art_available = now.art_url.is_some() || now.art_small.is_some();
+    let expand_rect = Rect::from_center_size(
+        pos2(cover_rect.right() - 10.0, cover_rect.top() + 10.0),
+        Vec2::splat(18.0),
+    );
+    let offer_expand = art_available && !app.settings.art_expanded && app.settings.sidebar_visible;
+    let over_expand = offer_expand && ui.rect_contains_pointer(expand_rect);
+    if cover_response.clicked() && !over_expand {
         if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
         } else if let Some(id) = &now.show_id {
             app.actions.push(Action::Open(Page::Show(id.clone())));
         }
     }
+    if offer_expand && (cover_response.hovered() || over_expand) {
+        let expand = ui
+            .interact(
+                expand_rect,
+                egui::Id::new("now-playing-art-expand"),
+                Sense::click(),
+            )
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        ui.painter()
+            .circle_filled(expand_rect.center(), 9.0, palette.panel.gamma_multiply(0.9));
+        Icon::ChevronUp.image(palette.text, 12.0).paint_at(
+            ui,
+            Rect::from_center_size(expand_rect.center(), Vec2::splat(12.0)),
+        );
+        if expand.clicked() {
+            app.settings.art_expanded = true;
+            app.actions.push(Action::SettingsChanged);
+        }
+    }
     let heart_width = if now.is_episode { 0.0 } else { 42.0 };
     let text_left = cover_rect.right() + 12.0;
     let text_width = (region.right() - text_left - heart_width).max(40.0);
     let text_rect = Rect::from_min_size(pos2(text_left, cy - 18.0), vec2(text_width, 36.0));
-    let info_response = ui.interact(text_rect, egui::Id::new("now-playing-info"), Sense::click());
+    let info_response = ui.interact(text_rect, egui::Id::new("now-playing-info"), drag_sense);
     let mut text_ui = ui.new_child(
         UiBuilder::new()
             .max_rect(text_rect)
@@ -136,28 +170,43 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             app.actions.push(Action::Open(Page::Show(id.clone())));
         }
     }
-    let subtitle_response = theme::link(
-        &mut text_ui,
-        &now.subtitle,
-        theme::regular(12.0),
-        palette.secondary,
-    );
-    if subtitle_response.clicked() {
-        if let Some(id) = now.artists.first().and_then(|artist| artist.id.clone()) {
-            app.actions.push(Action::Open(Page::Artist(id)));
-        } else if let Some(id) = &now.show_id {
-            app.actions.push(Action::Open(Page::Show(id.clone())));
+    text_ui.horizontal_top(|ui| {
+        if now.artists.is_empty() {
+            if theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary).clicked()
+                && let Some(id) = &now.show_id
+            {
+                app.actions.push(Action::Open(Page::Show(id.clone())));
+            }
+        } else {
+            super::widgets::artist_links(
+                ui,
+                app,
+                &now.artists,
+                theme::regular(12.0),
+                palette.secondary,
+            );
         }
+    });
+    if (cover_response.drag_started_by(egui::PointerButton::Primary)
+        || info_response.drag_started_by(egui::PointerButton::Primary))
+        && let Some(item) = &song
+    {
+        egui::DragAndDrop::set_payload(
+            ui.ctx(),
+            DragTrack {
+                uri: item.uri().to_string(),
+                title: item.name().to_string(),
+                image: item.image(64).map(str::to_string),
+                item: item.clone(),
+                from: None,
+            },
+        );
     }
+
     // The playing thing answers the same right-click menu as a table row,
     // from the cover, the empty space around the words, or the words.
-    if let Some(item) = app.now_playing_item() {
-        for response in [
-            &cover_response,
-            &info_response,
-            &title_response,
-            &subtitle_response,
-        ] {
+    if let Some(item) = song {
+        for response in [&cover_response, &info_response, &title_response] {
             egui::Popup::context_menu(response)
                 .frame(super::widgets::menu_frame(&palette))
                 .show(|ui| super::widgets::item_menu(ui, app, &item, None, None));
@@ -240,7 +289,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 
     let shuffle_color = if shuffle { palette.accent } else { dim };
     let mut cell = centered(ui, slot(widths[0]));
-    if theme::icon_button(
+    let shuffle_button = theme::icon_button(
         &mut cell,
         Icon::Shuffle,
         17.0,
@@ -251,9 +300,16 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
             palette.text
         },
         "Shuffle",
-    )
-    .clicked()
-    {
+    );
+    shuffle_button.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Checkbox,
+            cell.is_enabled(),
+            shuffle,
+            "Shuffle",
+        )
+    });
+    if shuffle_button.clicked() {
         app.actions.push(Action::ToggleShuffle);
     }
 
@@ -376,9 +432,10 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         &mut slider_ui,
         &palette,
         egui::Id::new("seek-slider"),
+        "Playback position (%)",
         fraction,
         slider_width,
-        palette.accent,
+        None,
     ) {
         SliderEvent::Dragging(value) => app.seek_preview = Some(value),
         SliderEvent::Committed(value) => {
@@ -413,9 +470,10 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>) {
         ui,
         &palette,
         egui::Id::new("volume-slider"),
+        "Volume (%)",
         shown as f32 / 100.0,
         92.0,
-        palette.accent,
+        Some(0.05),
     ) {
         SliderEvent::Dragging(value) => {
             app.volume_preview = Some(value);

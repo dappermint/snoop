@@ -14,6 +14,7 @@ use ksni::blocking::TrayMethods;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayCommand {
+    Show,
     ShowHide,
     PlayPause,
     Next,
@@ -68,7 +69,7 @@ impl ksni::Tray for FastTray {
         use ksni::menu::*;
         vec![
             StandardItem {
-                label: "Show / hide Snoop".into(),
+                label: "Show or hide Snoop".into(),
                 activate: Box::new(|tray: &mut Self| tray.send(TrayCommand::ShowHide)),
                 ..Default::default()
             }

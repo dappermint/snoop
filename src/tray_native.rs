@@ -5,9 +5,8 @@
 //! Linux one. macOS allows status items on the main thread only, and only
 //! while its event loop runs, so there the item is created with the first
 //! window and, while no window exists, the headless loop in `main` pumps
-//! the application's events itself. The app also leaves the Dock while it
-//! is hidden: a Dock icon with no window behind it has nothing to offer, and
-//! the status item is the way back.
+//! the application's events itself. Its Dock icon remains available and a
+//! Dock activation recreates the window.
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -18,6 +17,7 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayCommand {
+    Show,
     ShowHide,
     PlayPause,
     Next,
@@ -66,7 +66,7 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
     let menu = Menu::new();
     let play_pause = MenuItem::with_id(PLAY_PAUSE, play_pause_label(false), true, None);
     menu.append_items(&[
-        &MenuItem::with_id(SHOW, "Show / hide Snoop", true, None),
+        &MenuItem::with_id(SHOW, "Show or hide Snoop", true, None),
         &PredefinedMenuItem::separator(),
         &play_pause,
         &MenuItem::with_id(NEXT, "Next", true, None),
@@ -78,12 +78,12 @@ fn build(sender: Sender<TrayCommand>, wake: Wake) -> Result<Item, Box<dyn std::e
         .with_icon(icon)
         .with_tooltip("Snoop")
         .with_menu(Box::new(menu));
-    // A plain click shows or hides the window on every platform; the menu
-    // stays on right click.
+    // On Windows and macOS, a plain click shows or hides the window; the
+    // menu stays on right click.
+    #[cfg(any(windows, target_os = "macos"))]
+    let builder = builder.with_menu_on_left_click(false);
     #[cfg(target_os = "macos")]
-    let builder = builder
-        .with_icon_as_template(true)
-        .with_menu_on_left_click(false);
+    let builder = builder.with_icon_as_template(true);
     let icon = builder.build()?;
 
     let menu_sender = sender.clone();
@@ -229,9 +229,11 @@ pub fn idle(duration: Duration) {
 #[cfg(target_os = "macos")]
 mod host {
     use std::cell::RefCell;
+    use std::ffi::CString;
 
-    use objc2::MainThreadMarker;
-    use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEventMask};
+    use objc2::runtime::{AnyClass, AnyObject, Bool, MethodImplementation, Sel};
+    use objc2::{Encode, MainThreadMarker, sel};
+    use objc2_app_kit::{NSApplication, NSEventMask};
     use objc2_foundation::{NSDate, NSDefaultRunLoopMode};
 
     use super::*;
@@ -239,14 +241,80 @@ mod host {
     thread_local! {
         /// The status item, which only the main thread may touch.
         pub static ITEM: RefCell<Option<Item>> = const { RefCell::new(None) };
+        /// The channel a Dock click asks through, and the wake that makes
+        /// somebody read it.
+        pub(super) static REOPEN: RefCell<Option<(Sender<TrayCommand>, Wake)>> = const { RefCell::new(None) };
+    }
+
+    /// A Dock click, asking for the app back.
+    ///
+    /// `has_visible_windows` is not the question it sounds like: a window
+    /// sitting in the Dock still counts as visible, which is exactly the
+    /// case that needs help, so the flag is not consulted. Asking for a
+    /// window that is already up costs a focus and nothing else.
+    pub(super) fn request_reopen(_has_visible_windows: bool) -> Bool {
+        REOPEN.with(|slot| {
+            if let Some((sender, wake)) = slot.borrow().as_ref() {
+                let _ = sender.send(TrayCommand::Show);
+                // Ask for a frame as well as leaving a message. A minimized
+                // window is drawn none at all, and every repaint this app
+                // schedules is armed by the frame before it, so the only
+                // reader of that message is a loop that has already stopped.
+                wake();
+            }
+        });
+        Bool::YES
+    }
+
+    extern "C-unwind" fn application_should_handle_reopen(
+        _delegate: *mut AnyObject,
+        _selector: Sel,
+        _application: *mut NSApplication,
+        has_visible_windows: Bool,
+    ) -> Bool {
+        request_reopen(has_visible_windows.as_bool())
+    }
+
+    fn install_reopen_handler(app: &NSApplication) {
+        let Some(delegate) = app.delegate() else {
+            log::warn!("the macOS application delegate is unavailable");
+            return;
+        };
+        let delegate: &AnyObject = AsRef::<AnyObject>::as_ref(&*delegate);
+        let class = delegate.class();
+        let selector = sel!(applicationShouldHandleReopen:hasVisibleWindows:);
+        if class.responds_to(selector) {
+            return;
+        }
+        let implementation: extern "C-unwind" fn(
+            *mut AnyObject,
+            Sel,
+            *mut NSApplication,
+            Bool,
+        ) -> Bool = application_should_handle_reopen;
+        let types = CString::new(format!("{}@:@{}", Bool::ENCODING, Bool::ENCODING))
+            .expect("valid Objective-C type encoding");
+        let installed = unsafe {
+            objc2::ffi::class_addMethod(
+                class as *const AnyClass as *mut AnyClass,
+                selector,
+                implementation.__imp(),
+                types.as_ptr(),
+            )
+        };
+        if !installed.as_bool() {
+            log::warn!("the macOS Dock reopen handler could not be installed");
+        }
     }
 
     /// Creates the item, once, on the main thread.
     pub fn create(sender: Sender<TrayCommand>, wake: Wake, playing: bool) {
-        if MainThreadMarker::new().is_none() {
+        let Some(mtm) = MainThreadMarker::new() else {
             log::warn!("the status item can only be made on the main thread");
             return;
-        }
+        };
+        REOPEN.with(|slot| *slot.borrow_mut() = Some((sender.clone(), Arc::clone(&wake))));
+        install_reopen_handler(&NSApplication::sharedApplication(mtm));
         match build(sender, wake) {
             Ok(item) => {
                 item.play_pause.set_text(play_pause_label(playing));
@@ -268,18 +336,13 @@ mod host {
         });
     }
 
-    /// Regular apps have a Dock icon and a menu bar; accessories have
-    /// neither, which suits an app whose only presence is a status item.
-    pub fn set_activation_policy(policy: NSApplicationActivationPolicy, activate: bool) {
+    pub fn activate() {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
         let app = NSApplication::sharedApplication(mtm);
-        let _ = app.setActivationPolicy(policy);
-        if activate {
-            #[allow(deprecated)]
-            app.activateIgnoringOtherApps(true);
-        }
+        #[allow(deprecated)]
+        app.activateIgnoringOtherApps(true);
     }
 
     /// Runs the application's event loop for `duration`, so the status
@@ -341,29 +404,19 @@ impl TrayService {
         }
     }
 
-    /// A window exists: make the item if this is the first one, and take
-    /// the app's place in the Dock again.
+    /// A window exists: make the item if this is the first one and bring the
+    /// application forward.
     pub fn attach(&mut self) {
         if let Some((sender, wake)) = self.pending.take() {
             host::create(sender, wake, self.playing);
         }
         if host::exists() {
-            host::set_activation_policy(
-                objc2_app_kit::NSApplicationActivationPolicy::Regular,
-                true,
-            );
+            host::activate();
         }
     }
 
-    /// No window: leave the Dock. The status item is the way back.
-    pub fn hidden(&mut self) {
-        if host::exists() {
-            host::set_activation_policy(
-                objc2_app_kit::NSApplicationActivationPolicy::Accessory,
-                false,
-            );
-        }
-    }
+    /// No window: the status item and Dock icon both remain available.
+    pub fn hidden(&mut self) {}
 }
 
 /// Waits while the app lives in the tray without a window, keeping AppKit
@@ -371,4 +424,48 @@ impl TrayService {
 #[cfg(target_os = "macos")]
 pub fn idle(duration: Duration) {
     host::pump(duration);
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    /// A Dock click asks for the window whatever AppKit says about visible
+    /// ones, and asks for a frame as well as leaving a message.
+    ///
+    /// Both halves are load-bearing. A window in the Dock is reported as
+    /// visible, so a handler that trusted that flag did nothing at all for
+    /// the one case that needed it; and a minimized window is drawn no
+    /// frames, so the message alone would wait for a reader that has
+    /// stopped running.
+    #[test]
+    fn a_dock_click_asks_for_the_window_and_for_a_frame() {
+        let (sender, commands) = std::sync::mpsc::channel();
+        let woken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&woken);
+        let wake: Wake = Arc::new(move || {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        });
+        host::REOPEN.with(|slot| *slot.borrow_mut() = Some((sender, wake)));
+
+        // A minimized window is the reported-visible case, and the one the
+        // bug report is about.
+        assert!(host::request_reopen(true).as_bool());
+        assert_eq!(
+            commands.try_recv(),
+            Ok(TrayCommand::Show),
+            "a window in the Dock reports as visible, and was left there"
+        );
+        assert_eq!(
+            woken.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the message was left but nobody was asked to read it"
+        );
+
+        // No window at all: the tray case, which already worked.
+        assert!(host::request_reopen(false).as_bool());
+        assert_eq!(commands.try_recv(), Ok(TrayCommand::Show));
+        assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 2);
+        host::REOPEN.with(|slot| *slot.borrow_mut() = None);
+    }
 }

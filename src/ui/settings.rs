@@ -96,8 +96,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Make it even faster",
-            "Add your own Spotify Development Mode app as optional acceleration. Snoop keeps the shared app for catalog coverage and external playlists.",
+            "Personal Spotify app",
+            "Use a personal Development Mode app for a separate API quota. The shared app stays active.",
             |ui| {
                 let response = Frame::new()
                     .fill(palette.surface)
@@ -123,10 +123,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Don't have one?",
-            "It's free and takes five minutes in Spotify's developer dashboard.",
+            "Create an app",
+            "Create one for free in Spotify's developer dashboard.",
             |ui| {
-                if theme::pill_button(ui, &palette, "Show me how", false).clicked() {
+                if theme::pill_button(ui, &palette, "Setup guide", false).clicked() {
                     app.actions.push(Action::OpenUrl(
                         "https://dappermint.github.io/snoop/make-it-even-faster/".into(),
                     ));
@@ -147,8 +147,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             widgets::setting_row(
                 ui,
                 &palette,
-                "Personal acceleration is ready",
-                "Supported requests use your app. Shared catalog coverage stays available.",
+                "Personal app ready",
+                "Supported requests use your app. Other requests use the shared app.",
                 |ui| {
                     if theme::pill_button(ui, &palette, "Remove", false).clicked() {
                         app.settings.web_client_id = None;
@@ -161,7 +161,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui,
                 &palette,
                 "Authorize your personal app",
-                "Spotify opens once to verify that both sessions belong to this account.",
+                "Spotify opens in your browser to verify the account.",
                 |ui| {
                     if theme::pill_button(ui, &palette, "Authorize", true).clicked() {
                         app.actions.push(Action::ConfigurePersonalWebApp);
@@ -203,8 +203,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             crate::backend::LocalPlayback::Unavailable => (
                 "Not set up",
-                "Play music on this computer. Needs Spotify Premium and a one-time browser sign-in."
-                    .to_string(),
+                "Requires Spotify Premium and a one-time browser sign-in.".to_string(),
                 Some("Enable playback here"),
             ),
         };
@@ -282,7 +281,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "Normalize volume",
             "Keep loud and quiet tracks at a similar level.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.normalisation).changed() {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Normalize volume",
+                    &mut app.settings.normalisation,
+                )
+                .changed()
+                {
                     changed = true;
                     playback_dirty = true;
                 }
@@ -294,7 +300,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             "Autoplay",
             "Keep playing similar songs when your music ends.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.autoplay).changed() {
+                if widgets::switch(ui, &palette, "Autoplay", &mut app.settings.autoplay).changed() {
                     changed = true;
                     playback_dirty = true;
                 }
@@ -304,9 +310,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Gapless playback",
-            "Run tracks into each other without silence.",
+            "Play tracks without silence between them.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.gapless).changed() {
+                if widgets::switch(ui, &palette, "Gapless playback", &mut app.settings.gapless)
+                    .changed()
+                {
                     changed = true;
                     playback_dirty = true;
                 }
@@ -319,10 +327,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui,
                 &palette,
                 "Keep music playing when the window closes",
-                "Snoop hides to the system tray. Quit from the tray menu or with Ctrl+Q.",
+                super::keys::platform_shortcut(
+                    "Snoop hides to the system tray. Quit from the tray menu or with Ctrl+Q.",
+                    "Snoop hides to the system tray. Quit from the tray menu or with Cmd+Q.",
+                ),
                 |ui| {
-                    if widgets::switch(ui, &palette, &mut app.settings.keep_playing_in_background)
-                        .changed()
+                    if widgets::switch(
+                        ui,
+                        &palette,
+                        "Keep music playing when the window closes",
+                        &mut app.settings.keep_playing_in_background,
+                    )
+                    .changed()
                     {
                         changed = true;
                     }
@@ -332,10 +348,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         widgets::setting_row(
             ui,
             &palette,
-            "Tell me when a new version is out",
-            "Asks GitHub once a day. Nothing about you is sent.",
+            "Automatic update checks",
+            "Checks GitHub once a day. No personal data is sent.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.check_for_updates).changed() {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Automatic update checks",
+                    &mut app.settings.check_for_updates,
+                )
+                .changed()
+                {
                     changed = true;
                 }
             },
@@ -372,16 +395,41 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 },
             );
         }
+        #[cfg(windows)]
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Output buffer",
+            "More buffering can prevent clicks on busy computers. Less buffering makes controls respond sooner.",
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    let current = app.settings.audio_buffer_ms;
+                    for ms in [50u32, 100, 200] {
+                        let label = format!("{ms} ms");
+                        if theme::soft_button(ui, &palette, None, &label, current == ms).clicked()
+                            && current != ms
+                        {
+                            app.settings.audio_buffer_ms = ms;
+                            changed = true;
+                            playback_dirty = true;
+                        }
+                    }
+                });
+            },
+        );
         widgets::setting_row(
             ui,
             &palette,
             "Audio cache",
-            "Keep downloaded audio so replays don't stream again.",
+            "Save downloaded audio for later playback.",
             |ui| {
                 // The control area lays out right-to-left: add the rightmost item first.
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    if widgets::switch(ui, &palette, &mut app.settings.audio_cache).changed() {
+                    if widgets::switch(ui, &palette, "Audio cache", &mut app.settings.audio_cache)
+                        .changed()
+                    {
                         changed = true;
                         playback_dirty = true;
                     }
@@ -417,10 +465,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 theme::subtle(
                     ui,
                     &palette,
-                    "Playback settings take effect after a restart of the local player.",
+                    "Restart local playback to apply these settings.",
                 );
             } else {
-                theme::subtle(ui, &palette, "Playback settings are applied.");
+                theme::subtle(ui, &palette, "Playback settings applied.");
             }
         });
     });
@@ -474,9 +522,52 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Colour from album art",
-            "Tint pages and the player with the playing cover.",
+            "Use the current cover's colour on pages and the player bar.",
             |ui| {
-                if widgets::switch(ui, &palette, &mut app.settings.accent_from_art).changed() {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Colour from album art",
+                    &mut app.settings.accent_from_art,
+                )
+                .changed()
+                {
+                    changed = true;
+                }
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Compact library sidebar",
+            "Show names without covers in the sidebar.",
+            |ui| {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Compact library sidebar",
+                    &mut app.settings.sidebar_compact,
+                )
+                .changed()
+                {
+                    changed = true;
+                }
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Compact track list",
+            "Show each track on one line without a cover.",
+            |ui| {
+                if widgets::switch(
+                    ui,
+                    &palette,
+                    "Compact track list",
+                    &mut app.settings.tracklist_compact,
+                )
+                .changed()
+                {
                     changed = true;
                 }
             },
@@ -485,13 +576,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Interface zoom",
-            "Ctrl+Plus and Ctrl+Minus work anywhere; Ctrl+0 resets.",
+            super::keys::platform_shortcut(
+                "Ctrl+Plus and Ctrl+Minus work anywhere; Ctrl+0 resets.",
+                "Cmd+Plus and Cmd+Minus work anywhere; Cmd+0 resets.",
+            ),
             |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let mut zoom = app.settings.zoom;
-                    if theme::soft_button(ui, &palette, None, "-", false).clicked() {
-                        zoom = (zoom - 0.1).max(0.5);
+                    if theme::soft_button(ui, &palette, None, "+", false).clicked() {
+                        zoom = (zoom + 0.1).min(2.5);
                     }
                     theme::text(
                         ui,
@@ -499,8 +593,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         theme::medium(13.5),
                         palette.text,
                     );
-                    if theme::soft_button(ui, &palette, None, "+", false).clicked() {
-                        zoom = (zoom + 0.1).min(2.5);
+                    if theme::soft_button(ui, &palette, None, "-", false).clicked() {
+                        zoom = (zoom - 0.1).max(0.5);
                     }
                     if (zoom - app.settings.zoom).abs() > 0.001 {
                         app.settings.zoom = zoom;
@@ -512,12 +606,320 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         );
     });
 
+    section(ui, &palette, "Winamp skins", |ui| {
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Mini player",
+            super::keys::platform_shortcut(
+                "Use classic Winamp .wsz skins. Press Ctrl+M or click the skin logo to return. Drop a skin on either window to add it.",
+                "Use classic Winamp .wsz skins. Press Cmd+Shift+M or click the skin logo to return. Drop a skin on either window to add it.",
+            ),
+            |ui| {
+                if theme::pill_button(ui, &palette, "Switch to it", true).clicked() {
+                    app.actions.push(Action::ToggleWinampWindow);
+                }
+            },
+        );
+        let folder = app.dirs.skins_dir();
+        app.winamp.refresh_choices(&folder);
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Skin",
+            &format!(
+                "Installed skins are in {}. Find more at the Winamp Skin Museum.",
+                folder.display()
+            ),
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    if theme::soft_button(ui, &palette, Some(Icon::Globe), "Skin Museum", false)
+                        .clicked()
+                    {
+                        app.actions
+                            .push(Action::OpenUrl("https://skins.webamp.org/".into()));
+                    }
+                    if theme::soft_button(
+                        ui,
+                        &palette,
+                        Some(Icon::ExternalLink),
+                        "Open folder",
+                        false,
+                    )
+                    .clicked()
+                    {
+                        app.actions.push(Action::OpenSkinsFolder);
+                    }
+                });
+            },
+        );
+        let choices = app.winamp.choices.clone();
+        let mut options: Vec<(usize, &str)> = vec![(0, "Fastpotify")];
+        options.extend(
+            choices
+                .iter()
+                .enumerate()
+                .map(|(index, choice)| (index + 1, choice.label())),
+        );
+        let current = app
+            .settings
+            .skin
+            .as_deref()
+            .and_then(|name| choices.iter().position(|choice| choice.name == name))
+            .map_or(0, |index| index + 1);
+        if let Some(picked) = widgets::chips(ui, &palette, &options, current)
+            && picked != current
+        {
+            let name = picked
+                .checked_sub(1)
+                .map(|index| choices[index].name.clone());
+            app.actions.push(Action::SetSkin(name));
+        }
+        ui.add_space(4.0);
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Size",
+            "Whole-number scaling keeps skin pixels sharp.",
+            |ui| {
+                let scale =
+                    crate::winamp::WinampState::scale(&app.settings, ui.ctx().pixels_per_point());
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for candidate in 1..=crate::winamp::MAX_SCALE {
+                        let label = format!("{candidate}x");
+                        if theme::soft_button(ui, &palette, None, &label, candidate == scale)
+                            .clicked()
+                            && candidate != scale
+                        {
+                            app.actions.push(Action::SetSkinScale(candidate as u8));
+                        }
+                    }
+                });
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Always on top",
+            "Keep the Winamp window above everything else.",
+            |ui| {
+                let mut on_top = app.settings.winamp_on_top;
+                if widgets::switch(ui, &palette, "Always on top", &mut on_top).changed() {
+                    app.actions.push(Action::ToggleWinampOnTop);
+                }
+            },
+        );
+    });
+
+    section(ui, &palette, "MilkDrop", |ui| {
+        widgets::setting_row(
+            ui,
+            &palette,
+            "MilkDrop window",
+            super::keys::platform_shortcut(
+                "A projectM visualiser for local playback. Open it here, from the top bar, with Ctrl+Shift+K, or from the mini player's V menu. Press ? or F1 for its shortcuts.",
+                "A projectM visualiser for local playback. Open it here, from the top bar, with Cmd+Shift+K, or from the mini player's V menu. Press ? or F1 for its shortcuts.",
+            ),
+            |ui| {
+                let mut open = app.settings.milkdrop_open;
+                if widgets::switch(ui, &palette, "MilkDrop window", &mut open).changed() {
+                    app.actions.push(Action::ToggleWinampMilkdrop);
+                }
+            },
+        );
+        let folder = app.dirs.milkdrop_dir();
+        app.winamp.presets.refresh(&folder);
+        let count = app.winamp.presets.count();
+        let downloading = app.winamp.presets.downloading();
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Presets",
+            &format!(
+                "{} in {}. Add .milk files here. Snoop downloads presets when MilkDrop first opens with an empty folder.",
+                match count {
+                    0 => "None yet".to_string(),
+                    1 => "One preset".to_string(),
+                    n => format!("{n} presets"),
+                },
+                folder.display(),
+            ),
+            |_ui| {},
+        );
+        // Three buttons are wider than a row's control slot; they get a
+        // line of their own under the words.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for (index, pack) in crate::milkdrop::PACKS.iter().enumerate() {
+                let label = match downloading {
+                    Some(name) if name == pack.name => "Fetching...".to_string(),
+                    _ => format!("Get {}", pack.name),
+                };
+                if theme::soft_button(ui, &palette, Some(Icon::Globe), &label, false)
+                    .on_hover_text(pack.note)
+                    .clicked()
+                    && downloading.is_none()
+                {
+                    app.actions.push(Action::DownloadMilkdropPack(index));
+                }
+            }
+            if theme::soft_button(ui, &palette, Some(Icon::ExternalLink), "Open folder", false)
+                .clicked()
+            {
+                app.actions.push(Action::OpenMilkdropFolder);
+            }
+        });
+        ui.add_space(10.0);
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Time per preset",
+            "How long each preset plays before the next fades in.",
+            |ui| {
+                let mut seconds = app.settings.milkdrop_seconds.clamp(2, 300);
+                let slider = egui::Slider::new(&mut seconds, 2..=300)
+                    .logarithmic(true)
+                    .suffix(" s");
+                if ui.add(slider).changed() {
+                    app.actions.push(Action::SetMilkdropSeconds(seconds));
+                }
+            },
+        );
+        let screen_hz = app.settings.milkdrop_screen_hz;
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Frame rate",
+            &match screen_hz {
+                0 => "Lower rates use fewer resources. Uncapped draws as fast as possible."
+                    .to_string(),
+                hz => format!(
+                    "Your screen refreshes at {hz} Hz. Higher rates do not add visible frames. Uncapped draws as fast as possible."
+                ),
+            },
+            |ui| {
+                let fps = app.settings.milkdrop_fps;
+                // The dial stops at the rates worth having and passes
+                // through nothing in between, the way a gear lever does.
+                let stops = crate::milkdrop::fps_stops(screen_hz, fps);
+                let last = stops.len().saturating_sub(1);
+                let mut at = stops.iter().position(|rate| *rate == fps).unwrap_or(1);
+                let labels: Vec<String> = stops
+                    .iter()
+                    .map(|rate| crate::milkdrop::fps_label(*rate, screen_hz))
+                    .collect();
+                let shown = labels.clone();
+                let typed = stops.clone();
+                let slider = egui::Slider::new(&mut at, 0..=last)
+                    .step_by(1.0)
+                    .custom_formatter(move |value, _| {
+                        shown
+                            .get((value.round().max(0.0) as usize).min(shown.len() - 1))
+                            .cloned()
+                            .unwrap_or_default()
+                    })
+                    .custom_parser(move |text| {
+                        // A rate typed in lands on the nearest stop, since
+                        // the stops are all this dial can hold.
+                        let text = text.trim().to_lowercase();
+                        if text.starts_with("un") {
+                            return Some(typed.len().saturating_sub(1) as f64);
+                        }
+                        let wanted: u32 = text
+                            .trim_end_matches("fps")
+                            .trim()
+                            .split(',')
+                            .next()?
+                            .trim()
+                            .parse()
+                            .ok()?;
+                        typed
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, rate)| **rate > 0)
+                            .min_by_key(|(_, rate)| rate.abs_diff(wanted))
+                            .map(|(index, _)| index as f64)
+                    });
+                if ui.add(slider).changed()
+                    && let Some(rate) = stops.get(at)
+                {
+                    app.actions.push(Action::SetMilkdropFps(*rate));
+                }
+            },
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Resolution",
+            "Half and Quarter use fewer resources and scale the image back up.",
+            |ui| {
+                let current = app.settings.milkdrop_scale.max(1);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for (scale, label) in [(1u32, "Full"), (2, "Half"), (4, "Quarter")] {
+                        if theme::soft_button(ui, &palette, None, label, scale == current).clicked()
+                            && scale != current
+                        {
+                            app.actions.push(Action::SetMilkdropScale(scale));
+                        }
+                    }
+                });
+            },
+        );
+    });
+
+    section(ui, &palette, "Equalizer", |ui| {
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Equalizer",
+            "A ten-band equalizer for playback on this computer. It does not affect other devices.",
+            |ui| {
+                let mut on = app.settings.eq_on;
+                if widgets::switch(ui, &palette, "Equalizer", &mut on).changed() {
+                    app.actions.push(Action::ToggleEq);
+                }
+            },
+        );
+        let names: Vec<(usize, &str)> = crate::eq::PRESETS
+            .iter()
+            .enumerate()
+            .map(|(index, preset)| (index, preset.name))
+            .collect();
+        let current = crate::eq::PRESETS
+            .iter()
+            .position(|preset| preset.bands_db == app.settings.eq_bands_db)
+            .unwrap_or(usize::MAX);
+        if let Some(picked) = widgets::chips(ui, &palette, &names, current) {
+            app.actions.push(Action::ApplyEqPreset(picked));
+        }
+        ui.add_space(10.0);
+        eq_curve(ui, &palette, &crate::app::eq_settings(&app.settings));
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 14.0;
+            let on = app.settings.eq_on;
+            let mut preamp = app.settings.eq_preamp_db;
+            if eq_slider(ui, &palette, "Pre", &mut preamp, on) {
+                app.actions.push(Action::SetEqPreamp(preamp));
+            }
+            for (band, hz) in crate::eq::BANDS.iter().enumerate() {
+                let mut gain = app.settings.eq_bands_db[band];
+                if eq_slider(ui, &palette, &hertz(*hz), &mut gain, on) {
+                    app.actions.push(Action::SetEqBand(band, gain));
+                }
+            }
+        });
+    });
+
     section(ui, &palette, "Storage", |ui| {
         widgets::setting_row(
             ui,
             &palette,
             "Artwork cache",
-            &format!("Covers are kept in {}", app.dirs.art_cache_dir().display()),
+            &format!("Stored in {}", app.dirs.art_cache_dir().display()),
             |ui| {
                 if theme::soft_button(ui, &palette, Some(Icon::Trash), "Clear artwork", false)
                     .clicked()
@@ -530,8 +932,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui,
             &palette,
             "Audio cache",
-            &format!("Audio is kept in {}", app.dirs.audio_cache_dir().display()),
+            &format!("Stored in {}", app.dirs.audio_cache_dir().display()),
             |_| {},
+        );
+        widgets::setting_row(
+            ui,
+            &palette,
+            "Play history",
+            &format!(
+                "Tracks played here are stored in {}. This file is never uploaded.",
+                app.dirs.history_file().display()
+            ),
+            |ui| {
+                if theme::soft_button(ui, &palette, Some(Icon::Trash), "Clear history", false)
+                    .clicked()
+                {
+                    app.actions.push(Action::ClearPlayHistory);
+                }
+            },
         );
         widgets::setting_row(
             ui,
@@ -567,6 +985,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
+            let check_label = if app.update_checking {
+                "Checking…"
+            } else {
+                "Check for updates"
+            };
+            if theme::soft_button(ui, &palette, Some(Icon::Refresh), check_label, false).clicked()
+                && !app.update_checking
+            {
+                app.actions.push(Action::CheckForUpdates);
+            }
             if theme::soft_button(ui, &palette, Some(Icon::Info), "Keyboard shortcuts", false)
                 .clicked()
             {
@@ -584,5 +1012,120 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.data_mut(|data| data.insert_temp(dirty_id, playback_dirty));
     if changed {
         app.actions.push(Action::SettingsChanged);
+    }
+}
+
+/// A band's frequency the short way: 60, 170, 1K, 16K.
+fn hertz(hz: f32) -> String {
+    if hz >= 1000.0 {
+        format!("{}K", (hz / 1000.0).round() as u32)
+    } else {
+        format!("{}", hz.round() as u32)
+    }
+}
+
+/// One vertical slider in the app's own style: the track filled from
+/// 0 dB, the handle in the middle when flat, a double-click to put it
+/// back there. Returns whether it moved.
+fn eq_slider(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut f32, on: bool) -> bool {
+    use egui::{Rect, Stroke, pos2, vec2};
+    let range = crate::eq::RANGE_DB;
+    ui.vertical(|ui| {
+        let (rect, response) =
+            ui.allocate_exact_size(vec2(30.0, 118.0), egui::Sense::click_and_drag());
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+        let track = Rect::from_center_size(rect.center(), vec2(4.0, rect.height() - 20.0));
+        let y_of = |db: f32| track.bottom() - (db + range) / (2.0 * range) * track.height();
+        let mut changed = false;
+        if response.double_clicked() {
+            *value = 0.0;
+            changed = true;
+        } else if (response.dragged() || response.clicked())
+            && let Some(pos) = response.interact_pointer_pos()
+        {
+            let db = (track.bottom() - pos.y) / track.height() * 2.0 * range - range;
+            let db = (db.clamp(-range, range) * 10.0).round() / 10.0;
+            if db != *value {
+                *value = db;
+                changed = true;
+            }
+        }
+        if ui.is_rect_visible(rect) {
+            let painter = ui.painter();
+            painter.rect_filled(track, 2.0, palette.surface_active);
+            let fill = if on { palette.accent } else { palette.dim };
+            let (top, bottom) = (y_of(value.max(0.0)), y_of(value.min(0.0)));
+            painter.rect_filled(
+                Rect::from_min_max(pos2(track.left(), top), pos2(track.right(), bottom)),
+                2.0,
+                fill,
+            );
+            painter.hline(
+                (track.left() - 3.0)..=(track.right() + 3.0),
+                y_of(0.0),
+                Stroke::new(1.0, palette.dim),
+            );
+            let handle = pos2(track.center().x, y_of(*value));
+            painter.circle_filled(handle, 7.0, palette.text);
+            if response.hovered() || response.dragged() {
+                painter.text(
+                    pos2(track.center().x, rect.top() + 2.0),
+                    egui::Align2::CENTER_TOP,
+                    format!("{value:+.1}"),
+                    theme::regular(11.0),
+                    palette.secondary,
+                );
+            }
+        }
+        theme::text(ui, label, theme::regular(11.5), palette.secondary);
+        changed
+    })
+    .inner
+}
+
+/// The equalizer's response over the audible range, the bands marked on
+/// it: the shape says what a row of numbers cannot.
+fn eq_curve(ui: &mut egui::Ui, palette: &Palette, settings: &crate::eq::EqSettings) {
+    use egui::{Shape, Stroke, pos2, vec2};
+    let width = ui.available_width().min(720.0);
+    let (rect, _) = ui.allocate_exact_size(vec2(width, 120.0), egui::Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, theme::RADIUS as f32, palette.surface);
+    let plot = rect.shrink2(vec2(10.0, 12.0));
+    let (low, high) = (20f32.log10(), 20_000f32.log10());
+    let x_of = |hz: f32| plot.left() + (hz.log10() - low) / (high - low) * plot.width();
+    let y_of = |db: f32| {
+        plot.center().y
+            - db.clamp(-crate::eq::RANGE_DB, crate::eq::RANGE_DB) / crate::eq::RANGE_DB
+                * plot.height()
+                / 2.0
+    };
+    for db in [-12.0, -6.0, 0.0, 6.0, 12.0] {
+        let color = if db == 0.0 {
+            palette.dim
+        } else {
+            palette.outline
+        };
+        painter.hline(plot.x_range(), y_of(db), Stroke::new(1.0, color));
+    }
+    for hz in crate::eq::BANDS {
+        painter.vline(x_of(hz), plot.y_range(), Stroke::new(1.0, palette.outline));
+    }
+    let curve = settings.curve();
+    let points: Vec<egui::Pos2> = (0..=240)
+        .map(|step| {
+            let t = step as f32 / 240.0;
+            let hz = 10f32.powf(low + t * (high - low));
+            pos2(plot.left() + t * plot.width(), y_of(curve.db_at(hz)))
+        })
+        .collect();
+    let color = if settings.on {
+        palette.accent
+    } else {
+        palette.dim
+    };
+    painter.add(Shape::line(points, Stroke::new(2.0, color)));
+    for (hz, db) in crate::eq::BANDS.iter().zip(settings.bands_db) {
+        painter.circle_filled(pos2(x_of(*hz), y_of(db + settings.preamp_db)), 3.0, color);
     }
 }

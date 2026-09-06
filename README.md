@@ -56,6 +56,8 @@ or build with cargo directly:
 cargo run --release
 ```
 
+milkdrop is on by default and pulls in libprojectm, which cmake builds from source during `cargo build`, so you need cmake, a c++ compiler, and libclang. the nix devshell has all three. to build without it, add `--no-default-features`.
+
 to build a real `Snoop.app` (macos routes media keys, control centre, and the lock screen only to bundled apps, so `cargo run` does not get them):
 
 ```bash

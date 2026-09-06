@@ -5,6 +5,15 @@ use egui::{Key, Modifiers};
 use crate::app::App;
 use crate::model::{Action, Dialog, Page};
 
+pub(super) const fn platform_shortcut(ctrl: &'static str, cmd: &'static str) -> &'static str {
+    if cfg!(target_os = "macos") { cmd } else { ctrl }
+}
+
+pub(super) const SIDEBAR_SHORTCUT: &str = platform_shortcut("Ctrl+B", "Cmd+B");
+pub(super) const QUIT_SHORTCUT: &str = platform_shortcut("Ctrl+Q", "Cmd+Q");
+pub(super) const WINAMP_SHORTCUT: &str = platform_shortcut("Ctrl+M", "Cmd+Shift+M");
+pub(super) const MILKDROP_SHORTCUT: &str = platform_shortcut("Ctrl+Shift+K", "Cmd+Shift+K");
+
 pub fn handle(app: &mut App, ctx: &egui::Context) {
     let typing = ctx.memory(|memory| memory.focused().is_some());
     let mut actions = Vec::new();
@@ -18,6 +27,10 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
         key(Modifiers::COMMAND, Key::B, Action::ToggleSidebar);
         key(Modifiers::COMMAND, Key::Comma, Action::Open(Page::Settings));
         key(Modifiers::COMMAND, Key::Q, Action::Quit);
+        // The platform's close key. On macOS Snoop's own menu bar offers it
+        // as Close Window too; this covers the other platforms and the mini
+        // player, which has no title bar for the system to close it by.
+        key(Modifiers::COMMAND, Key::W, Action::CloseWindow);
         // ⌘H is Hide Application on macOS and the system menu wins it, so
         // Home moves aside there.
         if cfg!(target_os = "macos") {
@@ -30,19 +43,25 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::COMMAND, Key::H, Action::Open(Page::Home));
         }
         key(Modifiers::COMMAND, Key::L, Action::Open(Page::LikedSongs));
+        // Cmd+M minimises on macOS.
+        if cfg!(target_os = "macos") {
+            key(
+                Modifiers::COMMAND | Modifiers::SHIFT,
+                Key::M,
+                Action::ToggleWinampWindow,
+            );
+        } else {
+            key(Modifiers::COMMAND, Key::M, Action::ToggleWinampWindow);
+        }
+        // Winamp's key for starting and stopping the visualisation plug-in.
+        key(
+            Modifiers::COMMAND | Modifiers::SHIFT,
+            Key::K,
+            Action::ToggleWinampMilkdrop,
+        );
         key(
             Modifiers::COMMAND,
             Key::Slash,
-            Action::ShowDialog(Dialog::Shortcuts),
-        );
-        key(
-            Modifiers::NONE,
-            Key::Questionmark,
-            Action::ShowDialog(Dialog::Shortcuts),
-        );
-        key(
-            Modifiers::SHIFT,
-            Key::Questionmark,
             Action::ShowDialog(Dialog::Shortcuts),
         );
         key(Modifiers::ALT, Key::ArrowLeft, Action::Back);
@@ -77,6 +96,16 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             );
         }
         if !typing {
+            key(
+                Modifiers::NONE,
+                Key::Questionmark,
+                Action::ShowDialog(Dialog::Shortcuts),
+            );
+            key(
+                Modifiers::SHIFT,
+                Key::Questionmark,
+                Action::ShowDialog(Dialog::Shortcuts),
+            );
             key(Modifiers::SHIFT, Key::ArrowLeft, Action::SeekBy(-10_000));
             key(Modifiers::SHIFT, Key::ArrowRight, Action::SeekBy(10_000));
             key(Modifiers::NONE, Key::Space, Action::TogglePlay);
@@ -88,6 +117,12 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             key(Modifiers::NONE, Key::Slash, Action::FocusSearch);
         }
     });
+    if !typing
+        && ctx.input_mut(|input| input.consume_key(Modifiers::NONE, Key::B))
+        && let Some(now) = app.now_playing().filter(|now| !now.is_episode)
+    {
+        actions.push(Action::ToggleSaved(now.uri));
+    }
     // Resolve the "open current artist/album" placeholders.
     for action in actions {
         match action {
@@ -111,6 +146,19 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
             other => app.actions.push(other),
         }
     }
+    // Map mouse back and forward buttons to navigation.
+    let (back, forward) = ctx.input(|input| {
+        (
+            input.pointer.button_pressed(egui::PointerButton::Extra1),
+            input.pointer.button_pressed(egui::PointerButton::Extra2),
+        )
+    });
+    if back {
+        app.actions.push(Action::Back);
+    }
+    if forward {
+        app.actions.push(Action::Forward);
+    }
     if ctx.input(|input| input.key_pressed(Key::Escape)) {
         if app.dialog.is_some() {
             app.actions.push(Action::CloseDialog);
@@ -120,53 +168,155 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-#[cfg(target_os = "macos")]
 pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Space", "Play or pause"),
-    ("⌘←  /  ⌘→", "Previous or next"),
+    (
+        platform_shortcut("Ctrl+←  /  Ctrl+→", "Cmd+←  /  Cmd+→"),
+        "Previous or next",
+    ),
     ("Shift+←  /  Shift+→", "Seek 10 seconds"),
-    ("⌘↑  /  ⌘↓", "Volume up or down"),
+    (
+        platform_shortcut("Ctrl+↑  /  Ctrl+↓", "Cmd+↑  /  Cmd+↓"),
+        "Volume up or down",
+    ),
     ("M", "Mute or unmute"),
+    ("B", "Like or unlike the playing song"),
     ("S", "Toggle shuffle"),
     ("R", "Cycle repeat"),
-    ("Q  or  ⌘U", "Show the queue"),
-    ("⌘F  or  /", "Search"),
-    ("⌘[  /  ⌘]  or  ⌥←  /  ⌥→", "Back or forward"),
-    ("⌘⇧H", "Home"),
-    ("⌘L", "Liked Songs"),
-    ("⌘Shift+A", "Go to the playing artist"),
-    ("⌘Shift+B", "Go to the playing album"),
-    ("⌘,", "Settings"),
-    ("⌘/", "Keyboard shortcuts"),
-    ("⌘Q", "Quit"),
+    // Cmd+Shift+Q is Log Out on macOS, so the queue takes Cmd+U there too.
+    (platform_shortcut("Q", "Q  or  Cmd+U"), "Show the queue"),
+    ("L", "Show the lyrics"),
+    (platform_shortcut("Ctrl+F  or  /", "Cmd+F  or  /"), "Search"),
+    (SIDEBAR_SHORTCUT, "Show or hide the sidebar"),
+    (
+        platform_shortcut(
+            "Alt+←  /  Alt+→",
+            "Cmd+[  /  Cmd+]  or  Option+←  /  Option+→",
+        ),
+        "Back or forward",
+    ),
+    (platform_shortcut("Ctrl+H", "Cmd+Shift+H"), "Home"),
+    (platform_shortcut("Ctrl+L", "Cmd+L"), "Liked Songs"),
+    (
+        platform_shortcut("Ctrl+Shift+A", "Cmd+Shift+A"),
+        "Go to the playing artist",
+    ),
+    (
+        platform_shortcut("Ctrl+Shift+B", "Cmd+Shift+B"),
+        "Go to the playing album",
+    ),
+    (WINAMP_SHORTCUT, "Winamp mini player"),
+    (MILKDROP_SHORTCUT, "MilkDrop, under the mini player"),
+    ("F  or  double-click", "MilkDrop: fill the screen"),
+    ("→  /  N", "MilkDrop: next preset"),
+    ("←  /  P", "MilkDrop: previous preset"),
+    ("L", "MilkDrop: keep this preset"),
+    ("Esc", "MilkDrop: leave full screen, or close"),
+    (platform_shortcut("Ctrl+,", "Cmd+,"), "Settings"),
+    (
+        platform_shortcut("Ctrl+/ or ?", "Cmd+/ or ?"),
+        "Keyboard shortcuts",
+    ),
+    (platform_shortcut("Ctrl+W", "Cmd+W"), "Close the window"),
+    (QUIT_SHORTCUT, "Quit"),
 ];
 
-#[cfg(not(target_os = "macos"))]
-pub const SHORTCUTS: &[(&str, &str)] = &[
-    ("Space", "Play or pause"),
-    ("Ctrl+←  /  Ctrl+→", "Previous or next"),
-    ("Shift+←  /  Shift+→", "Seek 10 seconds"),
-    ("Ctrl+↑  /  Ctrl+↓", "Volume up or down"),
-    ("M", "Mute or unmute"),
-    ("S", "Toggle shuffle"),
-    ("R", "Cycle repeat"),
-    ("Q", "Show the queue"),
-    ("L", "Show the lyrics"),
-    ("Ctrl+F  or  /", "Search"),
-    ("Ctrl+B", "Show or hide the sidebar"),
-    ("Alt+←  /  Alt+→", "Back or forward"),
-    (
-        if cfg!(target_os = "macos") {
-            "Ctrl+Shift+H"
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::AppOptions;
+    use crate::paths::AppDirs;
+    use crate::settings::Settings;
+
+    #[test]
+    fn shortcut_constants_name_the_platform_modifier() {
+        let expected = if cfg!(target_os = "macos") {
+            ["Cmd+B", "Cmd+Q", "Cmd+Shift+M", "Cmd+Shift+K"]
         } else {
-            "Ctrl+H"
-        },
-        "Home",
-    ),
-    ("Ctrl+L", "Liked Songs"),
-    ("Ctrl+Shift+A", "Go to the playing artist"),
-    ("Ctrl+Shift+B", "Go to the playing album"),
-    ("Ctrl+,", "Settings"),
-    ("Ctrl+/ or ?", "Keyboard shortcuts"),
-    ("Ctrl+Q", "Quit"),
-];
+            ["Ctrl+B", "Ctrl+Q", "Ctrl+M", "Ctrl+Shift+K"]
+        };
+        assert_eq!(
+            [
+                SIDEBAR_SHORTCUT,
+                QUIT_SHORTCUT,
+                WINAMP_SHORTCUT,
+                MILKDROP_SHORTCUT,
+            ],
+            expected
+        );
+    }
+
+    #[test]
+    fn shortcut_dialog_never_names_the_other_command_modifier() {
+        let other = if cfg!(target_os = "macos") {
+            "Ctrl+"
+        } else {
+            "Cmd+"
+        };
+        for (keys, _) in SHORTCUTS {
+            assert!(!keys.contains(other), "wrong modifier in {keys}");
+        }
+    }
+
+    #[test]
+    fn shortcut_dialog_names_platform_reserved_alternatives() {
+        let label = |description| {
+            SHORTCUTS
+                .iter()
+                .find(|(_, candidate)| *candidate == description)
+                .map(|(keys, _)| *keys)
+                .unwrap()
+        };
+        if cfg!(target_os = "macos") {
+            assert_eq!(label("Home"), "Cmd+Shift+H");
+            assert_eq!(label("Winamp mini player"), "Cmd+Shift+M");
+        } else {
+            assert_eq!(label("Home"), "Ctrl+H");
+            assert_eq!(label("Winamp mini player"), "Ctrl+M");
+        }
+    }
+
+    #[test]
+    fn b_toggles_the_playing_song_in_liked_songs() {
+        let root = std::env::temp_dir().join(format!(
+            "fastpotify-like-shortcut-test-{}",
+            std::process::id()
+        ));
+        let dirs = AppDirs {
+            config: root.join("config"),
+            state: root.join("state"),
+            cache: root.join("cache"),
+        };
+        let mut app = App::new(
+            &crate::backend::Waker::default(),
+            dirs,
+            Settings::default(),
+            AppOptions {
+                media_controls: false,
+                tray: false,
+            },
+        );
+        crate::demo::populate(&mut app);
+
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            events: vec![egui::Event::Key {
+                key: Key::B,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Modifiers::NONE,
+            }],
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |_ui| handle(&mut app, &ctx));
+        output.textures_delta.clear();
+
+        assert!(matches!(
+            app.actions.as_slice(),
+            [Action::ToggleSaved(uri)] if uri == "spotify:track:trk0"
+        ));
+        app.backend.shutdown();
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
